@@ -27,14 +27,7 @@ pub fn expand(ecx: &mut base::ExtCtxt, span: codemap::Span,
                 name: "build_bindings",
                 generics: generic::ty::LifetimeBounds::empty(),
                 explicit_self: None,
-                args: vec![
-                    generic::ty::Literal(generic::ty::Path {
-                        path: vec!["Option"],
-                        lifetime: None,
-                        params: vec![Box::new(generic::ty::Self)],
-                        global: false,
-                    })
-                ],
+                args: vec![],
                 ret_ty: generic::ty::Literal(
                     generic::ty::Path::new(
                         vec!["glium", "VertexFormat"]
@@ -69,23 +62,23 @@ fn body(ecx: &mut base::ExtCtxt, span: codemap::Span,
 
                     quote_expr!(ecx, {
                         let offset = {
-                            let dummy: &$self_ty = unsafe { mem::transmute(0u) };
+                            let dummy: &$self_ty = unsafe { mem::transmute(0us) };
                             let dummy_field = &dummy.$ident;
-                            let dummy_field: uint = unsafe { mem::transmute(dummy_field) };
+                            let dummy_field: usize = unsafe { mem::transmute(dummy_field) };
                             dummy_field
                         };
 
                         bindings.push((
                             $ident_str.to_string(),
                             offset,
-                            Attribute::get_type(None::<$elem_type>),
+                            <$elem_type as Attribute>::get_type(),
                         ));
                     })
 
                 }).collect::<Vec<P<ast::Expr>>>();
 
             quote_expr!(ecx, {
-                use glium::vertex_buffer::Attribute;
+                use glium::vertex::Attribute;
                 use std::mem;
 
                 let mut bindings = Vec::new();

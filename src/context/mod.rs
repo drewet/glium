@@ -7,6 +7,10 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use std::cmp::Ordering;
 use GliumCreationError;
 
+pub use self::capabilities::Capabilities;
+
+mod capabilities;
+
 enum Message {
     EndFrame,
     Execute(Box<for<'a, 'b> ::std::thunk::Invoke<CommandContext<'a, 'b>, ()> + Send>),
@@ -20,6 +24,10 @@ pub struct Context {
     dimensions: Arc<(AtomicUint, AtomicUint)>,
 
     capabilities: Arc<Capabilities>,
+
+    version: GlVersion,
+
+    extensions: ExtensionsList,
 }
 
 pub struct CommandContext<'a, 'b> {
@@ -95,6 +103,9 @@ pub struct GLState {
     /// The latest buffer bound to `GL_PIXEL_UNPACK_BUFFER`.
     pub pixel_unpack_buffer_binding: gl::types::GLuint,
 
+    /// The latest buffer bound to `GL_UNIFORM_BUFFER`.
+    pub uniform_buffer_binding: gl::types::GLuint,
+
     /// The latest buffer bound to `GL_READ_FRAMEBUFFER`.
     pub read_framebuffer: gl::types::GLuint,
 
@@ -107,6 +118,9 @@ pub struct GLState {
 
     /// The latest render buffer bound with `glBindRenderbuffer`.
     pub renderbuffer: gl::types::GLuint,
+
+    /// The latest values passed to `glBlendEquation`.
+    pub blend_equation: gl::types::GLenum,
 
     /// The latest values passed to `glBlendFunc`.
     pub blend_func: (gl::types::GLenum, gl::types::GLenum),
@@ -137,6 +151,9 @@ pub struct GLState {
 
     /// The latest value passed to `glPixelStore` with `GL_PACK_ALIGNMENT`.
     pub pixel_store_pack_alignment: gl::types::GLint,
+
+    /// The latest value passed to `glPatchParameter` with `GL_PATCH_VERTICES`.
+    pub patch_patch_vertices: gl::types::GLint,
 }
 
 impl GLState {
@@ -166,13 +183,15 @@ impl GLState {
             array_buffer_binding: 0,
             pixel_pack_buffer_binding: 0,
             pixel_unpack_buffer_binding: 0,
+            uniform_buffer_binding: 0,
             read_framebuffer: 0,
             draw_framebuffer: 0,
             default_framebuffer_read: None,
             renderbuffer: 0,
             depth_func: gl::LESS,
             depth_range: (0.0, 1.0),
-            blend_func: (0, 0),     // no default specified
+            blend_equation: gl::FUNC_ADD,
+            blend_func: (gl::ONE, gl::ZERO),
             viewport: viewport,
             scissor: viewport,
             line_width: 1.0,
@@ -180,6 +199,7 @@ impl GLState {
             polygon_mode: gl::FILL,
             pixel_store_unpack_alignment: 4,
             pixel_store_pack_alignment: 4,
+            patch_patch_vertices: 3,
         }
     }
 }
@@ -204,6 +224,7 @@ impl Ord for GlVersion {
 }
 
 /// Contains data about the list of extensions
+#[derive(Show, Clone, Copy)]
 pub struct ExtensionsList {
     /// GL_EXT_direct_state_access
     pub gl_ext_direct_state_access: bool,
@@ -229,34 +250,18 @@ pub struct ExtensionsList {
     pub gl_arb_texture_storage: bool,
     /// GL_ARB_buffer_storage
     pub gl_arb_buffer_storage: bool,
-}
-
-/// Represents the capabilities of the context.
-pub struct Capabilities {
-    /// True if the context supports left and right buffers.
-    pub stereo: bool,
-
-    /// Number of bits in the default framebuffer's depth buffer
-    pub depth_bits: Option<u16>,
-
-    /// Number of bits in the default framebuffer's stencil buffer
-    pub stencil_bits: Option<u16>,
-
-    /// Maximum number of textures that can be bind to a program.
-    ///
-    /// `glActiveTexture` must be between `GL_TEXTURE0` and `GL_TEXTURE0` + this value - 1.
-    pub max_combined_texture_image_units: gl::types::GLint,
-
-    /// Maximum value for `GL_TEXTURE_MAX_ANISOTROPY_EXT​`.
-    ///
-    /// `None` if the extension is not supported by the hardware.
-    pub max_texture_max_anisotropy: Option<gl::types::GLfloat>,
-
-    /// Maximum width and height of `glViewport`.
-    pub max_viewport_dims: (gl::types::GLint, gl::types::GLint),
-
-    /// Maximum number of elements that can be passed with `glDrawBuffers`.
-    pub max_draw_buffers: gl::types::GLint,
+    /// GL_ARB_uniform_buffer_object
+    pub gl_arb_uniform_buffer_object: bool,
+    /// GL_ARB_sync
+    pub gl_arb_sync: bool,
+    /// GL_ARB_get_program_binary
+    pub gl_arb_get_programy_binary: bool,
+    /// GL_ARB_tessellation_shader
+    pub gl_arb_tessellation_shader: bool,
+    /// GL_APPLE_vertex_array_object
+    pub gl_apple_vertex_array_object: bool,
+    /// GL_ARB_instanced_arrays
+    pub gl_arb_instanced_arrays: bool,
 }
 
 impl Context {
@@ -283,8 +288,8 @@ impl Context {
             let mut gl_state = {
                 let viewport = {
                     let dim = window.get_inner_size().unwrap();
-                    dimensions.0.store(dim.0, atomic::Ordering::Relaxed);
-                    dimensions.1.store(dim.1, atomic::Ordering::Relaxed);
+                    dimensions.0.store(dim.0 as usize, atomic::Ordering::Relaxed);
+                    dimensions.1.store(dim.1 as usize, atomic::Ordering::Relaxed);
                     (0, 0, dim.0 as gl::types::GLsizei, dim.1 as gl::types::GLsizei)
                 };
 
@@ -296,7 +301,8 @@ impl Context {
             let opengl_es = match window.get_api() { glutin::Api::OpenGlEs => true, _ => false };       // TODO: fix glutin::Api not implementing Eq
             let version = get_gl_version(&gl);
             let extensions = get_extensions(&gl);
-            let capabilities = Arc::new(get_capabilities(&gl, &version, &extensions, opengl_es));
+            let capabilities = Arc::new(capabilities::get_capabilities(&gl, &version,
+                                                                       &extensions, opengl_es));
 
             // checking compatibility with glium
             match check_gl_compatibility(CommandContext {
@@ -312,7 +318,8 @@ impl Context {
                     return;
                 },
                 Ok(_) => {
-                    tx_success.send(Ok(capabilities.clone())).unwrap();
+                    let ret = (capabilities.clone(), version.clone(), extensions.clone());
+                    tx_success.send(Ok(ret)).unwrap();
                 }
             };
 
@@ -344,8 +351,8 @@ impl Context {
                 for event in window.poll_events() {
                     // update the dimensions
                     if let &glutin::Event::Resized(width, height) = &event {
-                        dimensions.0.store(width, atomic::Ordering::Relaxed);
-                        dimensions.1.store(height, atomic::Ordering::Relaxed);
+                        dimensions.0.store(width as usize, atomic::Ordering::Relaxed);
+                        dimensions.1.store(height as usize, atomic::Ordering::Relaxed);
                     }
 
                     // sending the event outside
@@ -356,11 +363,14 @@ impl Context {
             }
         });
 
+        let (capabilities, version, extensions) = try!(rx_success.recv().unwrap());
         Ok(Context {
             commands: Mutex::new(tx_commands),
             events: Mutex::new(rx_events),
             dimensions: dimensions2,
-            capabilities: try!(rx_success.recv().unwrap()),
+            capabilities: capabilities,
+            version: version,
+            extensions: extensions,
         })
     }
 
@@ -397,7 +407,8 @@ impl Context {
             let opengl_es = match window.get_api() { glutin::Api::OpenGlEs => true, _ => false };       // TODO: fix glutin::Api not implementing Eq
             let version = get_gl_version(&gl);
             let extensions = get_extensions(&gl);
-            let capabilities = Arc::new(get_capabilities(&gl, &version, &extensions, opengl_es));
+            let capabilities = Arc::new(capabilities::get_capabilities(&gl, &version,
+                                                                       &extensions, opengl_es));
 
             // checking compatibility with glium
             match check_gl_compatibility(CommandContext {
@@ -413,7 +424,8 @@ impl Context {
                     return;
                 },
                 Ok(_) => {
-                    tx_success.send(Ok(capabilities.clone())).unwrap();
+                    let ret = (capabilities.clone(), version.clone(), extensions.clone());
+                    tx_success.send(Ok(ret)).unwrap();
                 }
             };
 
@@ -433,18 +445,21 @@ impl Context {
             }
         });
 
+        let (capabilities, version, extensions) = try!(rx_success.recv().unwrap());
         Ok(Context {
             commands: Mutex::new(tx_commands),
             events: Mutex::new(rx_events),
             dimensions: dimensions2,
-            capabilities: try!(rx_success.recv().unwrap()),
+            capabilities: capabilities,
+            version: version,
+            extensions: extensions,
         })
     }
 
-    pub fn get_framebuffer_dimensions(&self) -> (uint, uint) {
+    pub fn get_framebuffer_dimensions(&self) -> (u32, u32) {
         (
-            self.dimensions.0.load(atomic::Ordering::Relaxed),
-            self.dimensions.1.load(atomic::Ordering::Relaxed),
+            self.dimensions.0.load(atomic::Ordering::Relaxed) as u32,
+            self.dimensions.1.load(atomic::Ordering::Relaxed) as u32,
         )
     }
 
@@ -472,6 +487,14 @@ impl Context {
     pub fn capabilities(&self) -> &Capabilities {
         &*self.capabilities
     }
+
+    pub fn get_version(&self) -> &GlVersion {
+        &self.version
+    }
+
+    pub fn get_extensions(&self) -> &ExtensionsList {
+        &self.extensions
+    }
 }
 
 fn check_gl_compatibility(ctxt: CommandContext) -> Result<(), GliumCreationError> {
@@ -480,6 +503,10 @@ fn check_gl_compatibility(ctxt: CommandContext) -> Result<(), GliumCreationError
     if ctxt.opengl_es {
         if ctxt.version < &GlVersion(3, 0) {
             result.push("OpenGL ES version inferior to 3.0");
+        }
+
+        if cfg!(feature = "gl_read_buffer") {
+            result.push("OpenGL ES doesn't support gl_read_buffer");
         }
 
     } else {
@@ -495,14 +522,47 @@ fn check_gl_compatibility(ctxt: CommandContext) -> Result<(), GliumCreationError
             result.push("OpenGL implementation doesn't support blitting framebuffers");
         }
 
-        if !ctxt.extensions.gl_arb_vertex_array_object && ctxt.version < &GlVersion(3, 0) {
+        if !ctxt.extensions.gl_arb_vertex_array_object &&
+            !ctxt.extensions.gl_apple_vertex_array_object &&
+            ctxt.version < &GlVersion(3, 0)
+        {
             result.push("OpenGL implementation doesn't support vertex array objects");
         }
 
-        if option_env!("TRAVIS").is_none() {        // TODO: ultra-hacky stuff to make tests pass
-            if !ctxt.extensions.gl_arb_sampler_objects && ctxt.version < &GlVersion(3, 3) {
-                result.push("OpenGL implementation doesn't support sampler objects");
-            }
+        if cfg!(feature = "gl_uniform_blocks") && ctxt.version < &GlVersion(3, 1) &&
+            !ctxt.extensions.gl_arb_uniform_buffer_object
+        {
+            result.push("OpenGL implementation doesn't support uniform blocks");
+        }
+
+        if cfg!(feature = "gl_sync") && ctxt.version < &GlVersion(3, 2) &&
+            !ctxt.extensions.gl_arb_sync
+        {
+            result.push("OpenGL implementation doesn't support synchronization objects");
+        }
+
+        if cfg!(feature = "gl_persistent_mapping") && ctxt.version < &GlVersion(4, 4) &&
+            !ctxt.extensions.gl_arb_buffer_storage
+        {
+            result.push("OpenGL implementation doesn't support persistent mapping");
+        }
+
+        if cfg!(feature = "gl_program_binary") && ctxt.version < &GlVersion(4, 1) &&
+            !ctxt.extensions.gl_arb_get_programy_binary
+        {
+            result.push("OpenGL implementation doesn't support program binary");
+        }
+
+        if cfg!(feature = "gl_tessellation") && ctxt.version < &GlVersion(4, 0) &&
+            !ctxt.extensions.gl_arb_tessellation_shader
+        {
+            result.push("OpenGL implementation doesn't support tessellation");
+        }
+
+        if cfg!(feature = "gl_instancing") && ctxt.version < &GlVersion(3, 3) &&
+            !ctxt.extensions.gl_arb_instanced_arrays
+        {
+            result.push("OpenGL implementation doesn't support instancing");
         }
     }
 
@@ -568,6 +628,12 @@ fn get_extensions(gl: &gl::Gl) -> ExtensionsList {
         gl_ext_texture_filter_anisotropic: false,
         gl_arb_texture_storage: false,
         gl_arb_buffer_storage: false,
+        gl_arb_uniform_buffer_object: false,
+        gl_arb_sync: false,
+        gl_arb_get_programy_binary: false,
+        gl_arb_tessellation_shader: false,
+        gl_apple_vertex_array_object: false,
+        gl_arb_instanced_arrays: false,
     };
 
     for extension in strings.into_iter() {
@@ -583,92 +649,16 @@ fn get_extensions(gl: &gl::Gl) -> ExtensionsList {
             "GL_ARB_sampler_objects" => extensions.gl_arb_sampler_objects = true,
             "GL_EXT_texture_filter_anisotropic" => extensions.gl_ext_texture_filter_anisotropic = true,
             "GL_ARB_texture_storage" => extensions.gl_arb_texture_storage = true,
-            "GL_ARB_buffer_storage" => extensions.gl_arb_buffer_storage = false,
+            "GL_ARB_buffer_storage" => extensions.gl_arb_buffer_storage = true,
+            "GL_ARB_uniform_buffer_object" => extensions.gl_arb_uniform_buffer_object = true,
+            "GL_ARB_sync" => extensions.gl_arb_sync = true,
+            "GL_ARB_get_program_binary" => extensions.gl_arb_get_programy_binary = true,
+            "GL_ARB_tessellation_shader" => extensions.gl_arb_tessellation_shader = true,
+            "GL_APPLE_vertex_array_object" => extensions.gl_apple_vertex_array_object = true,
+            "GL_ARB_instanced_arrays" => extensions.gl_arb_instanced_arrays = true,
             _ => ()
         }
     }
 
     extensions
-}
-
-fn get_capabilities(gl: &gl::Gl, version: &GlVersion, extensions: &ExtensionsList,
-                    gl_es: bool) -> Capabilities
-{
-    use std::mem;
-
-    Capabilities {
-        stereo: unsafe {
-            if gl_es {
-                false
-            } else {
-                let mut val: gl::types::GLboolean = mem::uninitialized();
-                gl.GetBooleanv(gl::STEREO, &mut val);
-                val != 0
-            }
-        },
-
-        depth_bits: unsafe {
-            let mut value = mem::uninitialized();
-
-            if version >= &GlVersion(3, 0) {
-                gl.GetFramebufferAttachmentParameteriv(gl::FRAMEBUFFER, gl::DEPTH,
-                                                       gl::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
-                                                       &mut value);
-            } else {
-                gl.GetIntegerv(gl::DEPTH_BITS, &mut value);
-            };
-
-            match value {
-                0 => None,
-                v => Some(v as u16),
-            }
-        },
-
-        stencil_bits: unsafe {
-            let mut value = mem::uninitialized();
-
-            if version >= &GlVersion(3, 0) {
-                gl.GetFramebufferAttachmentParameteriv(gl::FRAMEBUFFER, gl::STENCIL,
-                                                       gl::FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE,
-                                                       &mut value);
-            } else {
-                gl.GetIntegerv(gl::STENCIL_BITS, &mut value);
-            };
-
-            match value {
-                0 => None,
-                v => Some(v as u16),
-            }
-        },
-
-        max_combined_texture_image_units: unsafe {
-            let mut val = 2;
-            gl.GetIntegerv(gl::MAX_COMBINED_TEXTURE_IMAGE_UNITS, &mut val);
-            val
-        },
-
-        max_texture_max_anisotropy: if !extensions.gl_ext_texture_filter_anisotropic {
-            None
-
-        } else {
-            Some(unsafe {
-                let mut val = mem::uninitialized();
-                gl.GetFloatv(gl::MAX_TEXTURE_MAX_ANISOTROPY_EXT, &mut val);
-                val
-            })
-        },
-
-        max_viewport_dims: unsafe {
-            let mut val: [gl::types::GLint; 2] = [ 0, 0 ];
-            gl.GetIntegerv(gl::MAX_VIEWPORT_DIMS, val.as_mut_ptr());
-            (val[0], val[1])
-        },
-
-        max_draw_buffers: unsafe {
-            let mut val = 1;
-            gl.GetIntegerv(gl::MAX_DRAW_BUFFERS, &mut val);
-            val
-        },
-
-    }
 }

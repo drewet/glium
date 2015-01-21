@@ -4,90 +4,167 @@ use std::mem;
 
 use program::Program;
 use index_buffer::IndicesSource;
-use vertex_buffer::{VerticesSource, AttributeType};
+use vertex::{VerticesSource, AttributeType};
 use {DisplayImpl, GlObject};
 
-use {libc, gl};
+use {libc, gl, context};
 
-///
+/// Stores informations about how to bind a vertex buffer, an index buffer and a program.
 pub struct VertexArrayObject {
     display: Arc<DisplayImpl>,
     id: gl::types::GLuint,
 }
 
 impl VertexArrayObject {
+    /// Builds a new `VertexArrayObject`.
     ///
-    fn new(display: Arc<DisplayImpl>, vertex_buffer: VerticesSource,
+    /// The vertex buffer, index buffer and program must not outlive the
+    /// VAO, and the VB & program attributes must not change.
+    fn new(display: Arc<DisplayImpl>, vertex_buffers: &[&VerticesSource],
            ib_id: gl::types::GLuint, program: &Program) -> VertexArrayObject
     {
-        let VerticesSource::VertexBuffer(vertex_buffer) = vertex_buffer;
-        let bindings = vertex_buffer.get_bindings().clone();
-        let vb_elementssize = vertex_buffer.get_elements_size();
-        let vertex_buffer = GlObject::get_id(vertex_buffer);
         let attributes = ::program::get_attributes(program);
 
         // checking the attributes types
-        for &(ref name, _, ty) in bindings.iter() {
-            let attribute = match attributes.get(name) {
-                Some(a) => a,
-                None => continue
+        for vertex_buffer in vertex_buffers.iter() {
+            let bindings = match vertex_buffer {
+                &&VerticesSource::VertexBuffer(ref vertex_buffer, _) => {
+                    vertex_buffer.get_bindings()
+                },
+                &&VerticesSource::PerInstanceBuffer(ref buffer, _) => {
+                    buffer.get_bindings()
+                },
             };
 
-            if !vertex_type_matches(ty, attribute.ty, attribute.size) {
-                panic!("The program attribute `{}` does not match the vertex format", name);
+            for &(ref name, _, ty) in bindings.iter() {
+                let attribute = match attributes.get(name) {
+                    Some(a) => a,
+                    None => continue
+                };
+
+                if !vertex_type_matches(ty, attribute.ty, attribute.size) {
+                    panic!("The program attribute `{}` does not match the vertex format", name);
+                }
             }
         }
 
         // checking for missing attributes
         for (&ref name, _) in attributes.iter() {
-            if bindings.iter().find(|&&(ref n, _, _)| n == name).is_none() {
+            let mut found = false;
+            for vertex_buffer in vertex_buffers.iter() {
+                let bindings = match vertex_buffer {
+                    &&VerticesSource::VertexBuffer(ref vertex_buffer, _) => {
+                        vertex_buffer.get_bindings()
+                    },
+                    &&VerticesSource::PerInstanceBuffer(ref buffer, _) => {
+                        buffer.get_bindings()
+                    },
+                };
+
+                if bindings.iter().find(|&&(ref n, _, _)| n == name).is_some() {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
                 panic!("The program attribute `{}` is missing in the vertex bindings", name);
             }
         };
+
+        // TODO: check for collisions between the vertices sources
+
+        // building the values that will be sent to the other thread
+        let data = vertex_buffers.iter().map(|vertex_buffer| {
+            match vertex_buffer {
+                &&VerticesSource::VertexBuffer(ref vertex_buffer, _) => {
+                    (
+                        GlObject::get_id(*vertex_buffer),
+                        vertex_buffer.get_bindings().clone(),
+                        vertex_buffer.get_elements_size(),
+                        0 as u32
+                    )
+                },
+                &&VerticesSource::PerInstanceBuffer(ref buffer, _) => {
+                    (
+                        GlObject::get_id(*buffer),
+                        buffer.get_bindings().clone(),
+                        buffer.get_elements_size(),
+                        1 as u32
+                    )
+                },
+            }
+        }).collect::<Vec<_>>();
 
         let (tx, rx) = channel();
 
         display.context.exec(move |: ctxt| {
             unsafe {
+                // building the VAO
                 let id: gl::types::GLuint = mem::uninitialized();
-                ctxt.gl.GenVertexArrays(1, mem::transmute(&id));
+                if ctxt.version >= &context::GlVersion(3, 0) ||
+                    ctxt.extensions.gl_arb_vertex_array_object
+                {
+                    ctxt.gl.GenVertexArrays(1, mem::transmute(&id));
+                } else if ctxt.extensions.gl_apple_vertex_array_object {
+                    ctxt.gl.GenVertexArraysAPPLE(1, mem::transmute(&id));
+                } else {
+                    unreachable!()
+                }
                 tx.send(id).unwrap();
 
-                ctxt.gl.BindVertexArray(id);
+                // we don't use DSA as we're going to make multiple calls for this VAO
+                // and we're likely going to use the VAO right after it's been created
+                if ctxt.version >= &context::GlVersion(3, 0) ||
+                    ctxt.extensions.gl_arb_vertex_array_object
+                {
+                    ctxt.gl.BindVertexArray(id);
+                } else if ctxt.extensions.gl_apple_vertex_array_object {
+                    ctxt.gl.BindVertexArrayAPPLE(id);
+                } else {
+                    unreachable!()
+                }
                 ctxt.state.vertex_array = id;
 
-                // binding vertex buffer
-                if ctxt.state.array_buffer_binding != vertex_buffer {
-                    ctxt.gl.BindBuffer(gl::ARRAY_BUFFER, vertex_buffer);
-                    ctxt.state.array_buffer_binding = vertex_buffer;
-                }
-
                 // binding index buffer
+                // the ELEMENT_ARRAY_BUFFER is part of the state of the VAO
                 ctxt.gl.BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ib_id);
 
-                // binding attributes
-                for (name, offset, ty) in bindings.into_iter() {
-                    let (data_type, elements_count) = vertex_binding_type_to_gl(ty);
+                for (vertex_buffer, bindings, vb_elementssize, divisor) in data.into_iter() {
+                    // binding vertex buffer because glVertexAttribPointer uses the current
+                    // array buffer
+                    if ctxt.state.array_buffer_binding != vertex_buffer {
+                        ctxt.gl.BindBuffer(gl::ARRAY_BUFFER, vertex_buffer);
+                        ctxt.state.array_buffer_binding = vertex_buffer;
+                    }
 
-                    let attribute = match attributes.get(&name) {
-                        Some(a) => a,
-                        None => continue
-                    };
+                    // binding attributes
+                    for (name, offset, ty) in bindings.into_iter() {
+                        let (data_type, elements_count) = vertex_binding_type_to_gl(ty);
 
-                    if attribute.location != -1 {
-                        match data_type {
-                            gl::BYTE | gl::UNSIGNED_BYTE | gl::SHORT | gl::UNSIGNED_SHORT |
-                            gl::INT | gl::UNSIGNED_INT =>
-                                ctxt.gl.VertexAttribIPointer(attribute.location as u32,
-                                    elements_count as gl::types::GLint, data_type,
-                                    vb_elementssize as i32, offset as *const libc::c_void),
+                        let attribute = match attributes.get(&name) {
+                            Some(a) => a,
+                            None => continue
+                        };
 
-                            _ => ctxt.gl.VertexAttribPointer(attribute.location as u32,
-                                    elements_count as gl::types::GLint, data_type, 0,
-                                    vb_elementssize as i32, offset as *const libc::c_void)
+                        if attribute.location != -1 {
+                            match data_type {
+                                gl::BYTE | gl::UNSIGNED_BYTE | gl::SHORT | gl::UNSIGNED_SHORT |
+                                gl::INT | gl::UNSIGNED_INT =>
+                                    ctxt.gl.VertexAttribIPointer(attribute.location as u32,
+                                        elements_count as gl::types::GLint, data_type,
+                                        vb_elementssize as i32, offset as *const libc::c_void),
+
+                                _ => ctxt.gl.VertexAttribPointer(attribute.location as u32,
+                                        elements_count as gl::types::GLint, data_type, 0,
+                                        vb_elementssize as i32, offset as *const libc::c_void)
+                            }
+
+                            if divisor != 0 {
+                                ctxt.gl.VertexAttribDivisor(attribute.location as u32, divisor);
+                            }
+
+                            ctxt.gl.EnableVertexAttribArray(attribute.location as u32);
                         }
-
-                        ctxt.gl.EnableVertexAttribArray(attribute.location as u32);
                     }
                 }
             }
@@ -107,12 +184,29 @@ impl Drop for VertexArrayObject {
             unsafe {
                 // unbinding
                 if ctxt.state.vertex_array == id {
-                    ctxt.gl.BindVertexArray(0);
+                    if ctxt.version >= &context::GlVersion(3, 0) ||
+                        ctxt.extensions.gl_arb_vertex_array_object
+                    {
+                        ctxt.gl.BindVertexArray(0);
+                    } else if ctxt.extensions.gl_apple_vertex_array_object {
+                        ctxt.gl.BindVertexArrayAPPLE(0);
+                    } else {
+                        unreachable!()
+                    }
+
                     ctxt.state.vertex_array = 0;
                 }
 
                 // deleting
-                ctxt.gl.DeleteVertexArrays(1, [ id ].as_ptr());
+                if ctxt.version >= &context::GlVersion(3, 0) ||
+                    ctxt.extensions.gl_arb_vertex_array_object
+                {
+                    ctxt.gl.DeleteVertexArrays(1, [ id ].as_ptr());
+                } else if ctxt.extensions.gl_apple_vertex_array_object {
+                    ctxt.gl.DeleteVertexArraysAPPLE(1, [ id ].as_ptr());
+                } else {
+                    unreachable!()
+                }
             }
         });
     }
@@ -124,7 +218,9 @@ impl GlObject for VertexArrayObject {
     }
 }
 
-pub fn get_vertex_array_object<I>(display: &Arc<DisplayImpl>, vertex_buffer: VerticesSource,
+/// Obtains the id of the VAO corresponding to the vertex buffer, index buffer and program
+/// passed as parameters. Creates a new VAO if no existing one matches these.
+pub fn get_vertex_array_object<I>(display: &Arc<DisplayImpl>, vertex_buffers: &[&VerticesSource],
                                   indices: &IndicesSource<I>, program: &Program)
                                   -> gl::types::GLuint where I: ::index_buffer::Index
 {
@@ -133,21 +229,32 @@ pub fn get_vertex_array_object<I>(display: &Arc<DisplayImpl>, vertex_buffer: Ver
         &IndicesSource::IndexBuffer { ref buffer, .. } => buffer.get_id()
     };
 
-    let vb_id = match vertex_buffer {
-        VerticesSource::VertexBuffer(vb) => vb.get_id(),
+    let buffers_list = {
+        let mut buffers_list = Vec::with_capacity(1 + vertex_buffers.len());
+        if ib_id != 0 {
+            buffers_list.push(ib_id);
+        }
+        for vertex_buffer in vertex_buffers.iter() {
+            buffers_list.push(match vertex_buffer {
+                &&VerticesSource::VertexBuffer(ref vb, _) => vb.get_id(),
+                &&VerticesSource::PerInstanceBuffer(ref buf, _) => buf.get_id(),
+            });
+        }
+        buffers_list.sort();
+        buffers_list
     };
 
     let program_id = program.get_id();
 
     if let Some(value) = display.vertex_array_objects.lock().unwrap()
-                                .get(&(vb_id, ib_id, program_id)) {
+                                .get(&(buffers_list.clone(), program_id)) {
         return value.id;
     }
 
     // we create the new VAO without the mutex locked
-    let new_vao = VertexArrayObject::new(display.clone(), vertex_buffer.clone(), ib_id, program);
+    let new_vao = VertexArrayObject::new(display.clone(), vertex_buffers, ib_id, program);
     let new_vao_id = new_vao.id;
-    display.vertex_array_objects.lock().unwrap().insert((vb_id, ib_id, program_id), new_vao);
+    display.vertex_array_objects.lock().unwrap().insert((buffers_list, program_id), new_vao);
     new_vao_id
 }
 

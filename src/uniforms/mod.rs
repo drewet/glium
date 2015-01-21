@@ -1,10 +1,10 @@
 /*!
 A uniform is a global variable in your program. In order to draw something, you will need to
- tell `glium` what the values of all your uniforms are. Objects that implement the `Uniform`
- trait are here to do that.
+ give `glium` the values of all your uniforms. Objects that implement the `Uniform` trait are 
+ here to do that.
 
 The recommended way to is to create your own structure and put the `#[uniforms]` attribute
- to it.
+ on it.
 
 For example:
 
@@ -49,14 +49,15 @@ let uniforms = glium::uniforms::UniformsStorage::new("texture",
 ```
 
 */
+pub use self::buffer::UniformBuffer;
 pub use self::sampler::{SamplerWrapFunction, MagnifySamplerFilter, MinifySamplerFilter};
 pub use self::sampler::{Sampler, SamplerBehavior};
 pub use self::uniforms::{EmptyUniforms, UniformsStorage};
 pub use self::value::{UniformValue, IntoUniformValue, UniformType};
 
-// TODO: remove
-pub use self::sampler::{SamplerObject, get_sampler};
+use program;
 
+mod buffer;
 mod sampler;
 mod uniforms;
 mod value;
@@ -65,6 +66,12 @@ mod value;
 pub trait Uniforms {
     /// Calls the parameter once with the name and value of each uniform.
     fn visit_values<F: FnMut(&str, &UniformValue)>(self, F);
+}
+
+/// Objects that are suitable for being binded to a uniform block.
+pub trait UniformBlock: Copy {
+    /// Checks whether the uniforms' layout matches the given block.
+    fn matches(&program::UniformBlock) -> bool;
 }
 
 // TODO: hacky (see #189)

@@ -10,7 +10,7 @@ use glium::{self, DisplayBuild};
 
 use std::os;
 
-/// Returns true if we are executed headless tests.
+/// Returns true if we are executing headless tests.
 pub fn is_headless() -> bool {
     os::getenv("HEADLESS_TESTS").is_some()
 }
@@ -69,8 +69,8 @@ pub fn build_unicolor_texture2d(display: &glium::Display, red: f32, green: f32, 
     ])
 }
 
-/// Builds a VB, IB and program that draw the red color `(1.0, 0.0, 0.0, 1.0)` on the whole screen.
-pub fn build_fullscreen_red_pipeline(display: &glium::Display) -> (glium::vertex_buffer::VertexBufferAny,
+/// Builds a vertex buffer, index buffer, and program, to draw red `(1.0, 0.0, 0.0, 1.0)` to the whole screen.
+pub fn build_fullscreen_red_pipeline(display: &glium::Display) -> (glium::vertex::VertexBufferAny,
     glium::IndexBuffer, glium::Program)
 {
     #[vertex_format]
@@ -108,11 +108,11 @@ pub fn build_fullscreen_red_pipeline(display: &glium::Display) -> (glium::vertex
     )
 }
 
-/// Builds a VB and an IB corresponding to a rectangle.
+/// Builds a vertex buffer and an index buffer corresponding to a rectangle.
 ///
-/// The VB has the "position" attribute of type "vec2".
+/// The vertex buffer has the "position" attribute of type "vec2".
 pub fn build_rectangle_vb_ib(display: &glium::Display)
-    -> (glium::vertex_buffer::VertexBufferAny, glium::IndexBuffer)
+    -> (glium::vertex::VertexBufferAny, glium::IndexBuffer)
 {
     #[vertex_format]
     #[derive(Copy)]
@@ -128,4 +128,11 @@ pub fn build_rectangle_vb_ib(display: &glium::Display)
 
         glium::IndexBuffer::new(display, glium::index_buffer::TriangleStrip(vec![0u8, 1, 2, 3])),
     )
+}
+
+/// Builds a texture suitable for rendering.
+pub fn build_renderable_texture(display: &glium::Display) -> glium::Texture2d {
+    glium::Texture2d::new_empty(display,
+                                glium::texture::UncompressedFloatFormat::U8U8U8U8,
+                                1024, 1024)
 }

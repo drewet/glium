@@ -1,5 +1,5 @@
 /*!
-Easy-to-use high-level OpenGL3+ wrapper.
+Easy-to-use, high-level, OpenGL3+ wrapper.
 
 # Initialization
 
@@ -24,17 +24,17 @@ fn main() {
 
 The `display` object is the most important object of this library.
 
-The window where you are drawing on will produce events. They can be received by calling
+The window you are drawing on will produce events. They can be received by calling
 `display.poll_events()`.
 
 ## Complete example
 
-We start by creating the vertex buffer, which contains the list of all the points that are part
-of our mesh. The elements that we pass to `VertexBuffer::new` must implement the
-`glium::vertex_buffer::VertexFormat` trait. We can easily do this by creating a custom struct
+We start by creating the vertex buffer, which contains the list of all the points that make up
+our mesh. The elements that we pass to `VertexBuffer::new` must implement the
+`glium::vertex::VertexFormat` trait. We can easily do this by creating a custom struct
 and adding the `#[vertex_format]` attribute to it.
 
-You can check the documentation of the `vertex_buffer` module for more informations.
+See the `vertex` module documentation for more informations.
 
 ```no_run
 # #![feature(plugin)]
@@ -51,7 +51,7 @@ struct Vertex {
 }
 
 # let display: glium::Display = unsafe { std::mem::uninitialized() };
-let vertex_buffer = glium::VertexBuffer::new(&display, vec![
+let vertex = glium::VertexBuffer::new(&display, vec![
     Vertex { position: [-0.5, -0.5], color: [0.0, 1.0, 0.0] },
     Vertex { position: [ 0.0,  0.5], color: [0.0, 0.0, 1.0] },
     Vertex { position: [ 0.5, -0.5], color: [1.0, 0.0, 0.0] },
@@ -59,7 +59,7 @@ let vertex_buffer = glium::VertexBuffer::new(&display, vec![
 # }
 ```
 
-Then we create the index buffer, which contains informations about the primitives (triangles,
+We then create the index buffer, which contains information about the primitives (triangles,
 lines, etc.) that compose our mesh.
 
 The last parameter is a list of indices that represent the positions of our points in the
@@ -71,11 +71,11 @@ let index_buffer = glium::IndexBuffer::new(&display,
     glium::index_buffer::TrianglesList(vec![ 0u16, 1, 2 ]));
 ```
 
-Then we create the program, which is composed of a *vertex shader*, a program executed once for
+Next, we create the program, which is composed of a *vertex shader*, a program executed once for
 each element in our vertex buffer, and a *fragment shader*, a program executed once for each
 pixel before it is written on the final image.
 
-The purpose of a program is to instruct the GPU how to process our mesh in order to obtain pixels.
+The purpose of a program is to instruct the GPU how to process our mesh, in order to obtain pixels.
 
 ```no_run
 # let display: glium::Display = unsafe { std::mem::uninitialized() };
@@ -113,7 +113,7 @@ let program = glium::Program::from_source(&display,
 *Note: Teaching you the GLSL language is not covered by this guide.*
 
 You may notice that the `attribute` declarations in the vertex shader match the field names and
-types of the elements in the vertex buffer. This is required, or drawing will result in an error.
+types of the elements in the vertex buffer. This is required, otherwise drawing will result in an error.
 
 In the example above, you may notice `uniform mat4 matrix;`. This is a *uniform*, in other words
 a global variable in our program. We will need to tell glium what the value of `matrix` is by
@@ -145,22 +145,22 @@ let uniforms = Uniforms {
 # }
 ```
 
-Vertex buffers, index buffers and program should be stored between draws in order to avoid wasting
+Vertex buffers, index buffers, and the program should be stored between draws in order to avoid wasting
 time, but objects that implement the `glium::uniforms::Uniforms` trait are usually constructed
 every time you draw.
 
-Fields of our `Uniforms` object can be any object that implements `glium::uniforms::UniformValue`.
-This includes textures and samplers (not covered here). You can check the documentation of the
-`uniforms` module for more informations.
+The fields of our `Uniforms` object can be any object that implements `glium::uniforms::UniformValue`.
+This includes textures and samplers (not covered here). See the `uniforms` module documentation 
+for more informations.
 
 Now that everything is initialized, we can finally draw something. To do so, call `display.draw()`
 in order to obtain a `Frame` object. Note that it is also possible to draw on a texture by
 calling `texture.as_surface()`, but this is not covered here.
 
-The `Frame` object has a `draw` function which you can use to draw things.
-Its arguments are the vertex buffer, index buffer, program, uniforms, and an object of type
-`DrawParameters` which contains miscellaneous informations about how everything should be rendered
-(depth test, blending, backface culling, etc.).
+The `Frame` object has a `draw` function, which you can use to draw things. Its arguments are the
+vertex buffer, index buffer, program, uniforms, and an object of type `DrawParameters`, which 
+contains miscellaneous information specifying how everything should be rendered (depth test, blending,
+backface culling, etc.).
 
 ```no_run
 use glium::Surface;
@@ -171,13 +171,12 @@ use glium::Surface;
 # let uniforms = glium::uniforms::EmptyUniforms;
 let mut target = display.draw();
 target.clear_color(0.0, 0.0, 0.0, 0.0);  // filling the output with the black color
-target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &std::default::Default::default());
+target.draw(&vertex_buffer, &index_buffer, &program, &uniforms,
+            &std::default::Default::default()).unwrap();
 target.finish();
 ```
 
 */
-#![feature(int_uint)]
-#![feature(old_orphan_check)]
 #![feature(slicing_syntax)]
 #![feature(unboxed_closures)]
 #![feature(unsafe_destructor)]
@@ -199,9 +198,10 @@ extern crate libc;
 extern crate nalgebra;
 
 pub use index_buffer::IndexBuffer;
-pub use vertex_buffer::{VertexBuffer, Vertex, VertexFormat};
+pub use vertex::{VertexBuffer, Vertex, VertexFormat};
 pub use program::{Program, ProgramCreationError};
 pub use program::ProgramCreationError::{CompilationError, LinkingError, ShaderTypeNotSupported};
+pub use sync::{LinearSyncFence, SyncFence};
 pub use texture::{Texture, Texture2d};
 
 use std::collections::HashMap;
@@ -213,16 +213,19 @@ pub mod debug;
 pub mod framebuffer;
 pub mod index_buffer;
 pub mod pixel_buffer;
+pub mod macros;
+pub mod program;
 pub mod render_buffer;
 pub mod uniforms;
-pub mod vertex_buffer;
+pub mod vertex;
 pub mod texture;
 
 mod buffer;
 mod context;
 mod fbo;
 mod ops;
-mod program;
+mod sampler_object;
+mod sync;
 mod vertex_array_object;
 
 mod gl {
@@ -242,24 +245,138 @@ trait ToGlEnum {
 }
 
 /// Function that the GPU will use for blending.
+///
+/// Blending happens at the end of the rendering process, when the GPU wants to write the
+/// pixels over pixels that already exist in the framebuffer. The blending function allows
+/// you to choose how it should merge the two.
+///
+/// If you want to add transparent objects one over another, the usual value
+/// is `Addition { source: Alpha, destination: OneMinusAlpha }`.
 #[derive(Clone, Copy, Show, PartialEq, Eq)]
 pub enum BlendingFunction {
-    /// Always replace the destination pixel by the source.
+    /// Simply overwrite the destination pixel with the source pixel.
     ///
     /// The alpha channels are simply ignored. This is the default mode.
+    ///
+    /// For example writing `(0.5, 0.9, 0.4, 0.2)` over `(0.9, 0.1, 0.4, 0.3)` will
+    /// result in `(0.5, 0.9, 0.4, 0.2)`.
     AlwaysReplace,
 
-    /// Linear interpolation of the source pixel by the source pixel's alpha.
+    /// For each individual component (red, green, blue, and alpha), the minimum value is chosen
+    /// between the source and the destination.
     ///
-    /// If the source's alpha is 0, the destination's color will stay the same. If the source's
-    ///  alpha is 1, the destination's color will be replaced by the source's. If the source's
-    ///  alpha is 0.5, the destination's color is the average between the source's and the
-    ///  destination's color.
+    /// For example writing `(0.5, 0.9, 0.4, 0.2)` over `(0.9, 0.1, 0.4, 0.3)` will
+    /// result in `(0.5, 0.1, 0.4, 0.2)`.
+    Min,
+
+    /// For each individual component (red, green, blue, and alpha), the maximum value is chosen
+    /// between the source and the destination.
     ///
-    /// This is the mode that you usually use for transparency.
+    /// For example writing `(0.5, 0.9, 0.4, 0.2)` over `(0.9, 0.1, 0.4, 0.3)` will
+    /// result in `(0.9, 0.9, 0.4, 0.3)`.
+    Max,
+
+    /// For each individual component (red, green, blue, and alpha), a weighted addition
+    /// between the source and the destination.
     ///
-    /// Means `(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)` in Openctxt.gl.
-    LerpBySourceAlpha,
+    /// The result is equal to `source_component * source_factor + dest_component * dest_factor`,
+    /// where `source_factor` and `dest_factor` are the values of `source` and `destination` of
+    /// this enum.
+    Addition {
+        /// The factor to apply to the source pixel.
+        source: LinearBlendingFactor,
+
+        /// The factor to apply to the destination pixel.
+        destination: LinearBlendingFactor,
+    },
+
+    /// For each individual component (red, green, blue, and alpha), a weighted substraction
+    /// of the source by the destination.
+    ///
+    /// The result is equal to `source_component * source_factor - dest_component * dest_factor`,
+    /// where `source_factor` and `dest_factor` are the values of `source` and `destination` of
+    /// this enum.
+    Subtraction {
+        /// The factor to apply to the source pixel.
+        source: LinearBlendingFactor,
+
+        /// The factor to apply to the destination pixel.
+        destination: LinearBlendingFactor,
+    },
+
+    /// For each individual component (red, green, blue, and alpha), a weighted substraction
+    /// of the destination by the source.
+    ///
+    /// The result is equal to `-source_component * source_factor + dest_component * dest_factor`,
+    /// where `source_factor` and `dest_factor` are the values of `source` and `destination` of
+    /// this enum.
+    ReverseSubtraction {
+        /// The factor to apply to the source pixel.
+        source: LinearBlendingFactor,
+
+        /// The factor to apply to the destination pixel.
+        destination: LinearBlendingFactor,
+    },
+}
+
+/// Indicates which value to multiply each component with.
+#[derive(Clone, Copy, Show, PartialEq, Eq)]
+pub enum LinearBlendingFactor {
+    /// Multiply the source or destination component by zero, which always
+    /// gives `0.0`.
+    Zero,
+
+    /// Multiply the source or destination component by one, which always
+    /// gives you the original value.
+    One,
+
+    /// Multiply the source or destination component by its corresponding value
+    /// in the source.
+    ///
+    /// If you apply this to the source components, you get the values squared.
+    SourceColor,
+
+    /// Equivalent to `1 - SourceColor`.
+    OneMinusSourceColor,
+
+    /// Multiply the source or destination component by its corresponding value
+    /// in the destination.
+    ///
+    /// If you apply this to the destination components, you get the values squared.
+    DestinationColor,
+
+    /// Equivalent to `1 - DestinationColor`.
+    OneMinusDestinationColor,
+
+    /// Multiply the source or destination component by the alpha value of the source.
+    SourceAlpha,
+
+    /// Multiply the source or destination component by `1.0` minus the alpha value of the source.
+    OneMinusSourceAlpha,
+
+    /// Multiply the source or destination component by the alpha value of the destination.
+    DestinationAlpha,
+
+    /// Multiply the source or destination component by `1.0` minus the alpha value of the
+    /// destination.
+    OneMinusDestinationAlpha,
+}
+
+impl ToGlEnum for LinearBlendingFactor {
+    fn to_glenum(&self) -> gl::types::GLenum {
+        match *self {
+            LinearBlendingFactor::Zero => gl::ZERO,
+            LinearBlendingFactor::One => gl::ONE,
+            LinearBlendingFactor::SourceColor => gl::SRC_COLOR,
+            LinearBlendingFactor::OneMinusSourceColor => gl::ONE_MINUS_SRC_COLOR,
+            LinearBlendingFactor::DestinationColor => gl::DST_COLOR,
+            LinearBlendingFactor::OneMinusDestinationColor => gl::ONE_MINUS_DST_COLOR,
+            LinearBlendingFactor::SourceAlpha => gl::SRC_ALPHA,
+            LinearBlendingFactor::OneMinusSourceAlpha => gl::ONE_MINUS_SRC_ALPHA,
+            LinearBlendingFactor::DestinationAlpha => gl::DST_ALPHA,
+            LinearBlendingFactor::OneMinusDestinationAlpha => gl::ONE_MINUS_DST_ALPHA,
+        }
+    }
 }
 
 /// Describes how triangles should be filtered before the fragment processing. Backface culling
@@ -272,8 +389,8 @@ pub enum BlendingFunction {
 ///
 /// For a given triangle, there are only two situations:
 ///
-/// - The vertices are arranged in a clockwise way on the screen.
-/// - The vertices are arranged in a counterclockwise way on the screen.
+/// - The vertices are arranged in a clockwise direction on the screen.
+/// - The vertices are arranged in a counterclockwise direction on the screen.
 ///
 /// If you wish so, you can ask the GPU to discard all the primitives that belong to one
 /// of these two categories.
@@ -321,7 +438,7 @@ pub enum BackfaceCullingMode {
 /// # Depth buffers
 ///
 /// After the fragment shader has been run, the GPU maps the output Z coordinates to the depth
-/// range (that you can specify in the draw parameters) in order to obtain the depth value in
+/// range (which you can specify in the draw parameters) in order to obtain the depth value in
 /// in window coordinates. This depth value is always between `0.0` and `1.0`.
 ///
 /// In addition to the buffer where pixel colors are stored, you can also have a buffer
@@ -352,13 +469,13 @@ pub enum DepthFunction {
     /// Replace if the z-value of the source is more than the destination.
     IfMore,
 
-    /// Replace if the z-value of the source is more or equal to the destination.
+    /// Replace if the z-value of the source is more than, or equal to the destination.
     IfMoreOrEqual,
 
     /// Replace if the z-value of the source is less than the destination.
     IfLess,
 
-    /// Replace if the z-value of the source is less or equal to the destination.
+    /// Replace if the z-value of the source is less than, or equal to the destination.
     IfLessOrEqual
 }
 
@@ -454,12 +571,12 @@ pub struct DrawParameters {
     /// The function that the GPU will use to determine whether to write over an existing pixel
     /// on the target.
     ///
-    /// See the documentation of `DepthFunction` for more details.
+    /// See the `DepthFunction` documentation for more details.
     ///
     /// The default is `Overwrite`.
     pub depth_function: DepthFunction,
 
-    /// The range of Z coordinates in surface coordinates.
+    /// The range of possible Z values in surface coordinates.
     ///
     /// Just like OpenGL turns X and Y coordinates between `-1.0` and `1.0` into surface
     /// coordinates, it will also map your Z coordinates to a certain range which you can
@@ -489,10 +606,10 @@ pub struct DrawParameters {
     /// After the vertex shader stage, the GPU will try to remove the faces that aren't facing
     /// the camera.
     ///
-    /// See the documentation of `BackfaceCullingMode` for more infos.
+    /// See the `BackfaceCullingMode` documentation for more infos.
     pub backface_culling: BackfaceCullingMode,
 
-    /// Sets how to render polygons. The default value is `Fill`.
+    /// How to render polygons. The default value is `Fill`.
     ///
     /// See the documentation of `PolygonMode` for more infos.
     pub polygon_mode: PolygonMode,
@@ -509,9 +626,9 @@ pub struct DrawParameters {
     /// Dithering will smoothen the transition between colors in your color buffer.
     pub dithering: bool,
 
-    /// Specifies the viewport to use when drawing.
+    /// The viewport to use when drawing.
     ///
-    /// The x and y positions of your vertices are mapped to the viewport so that `(-1, -1)`
+    /// The X and Y positions of your vertices are mapped to the viewport so that `(-1, -1)`
     /// corresponds to the lower-left hand corner and `(1, 1)` corresponds to the top-right
     /// hand corner. Any pixel outside of the viewport is discarded.
     ///
@@ -546,15 +663,17 @@ impl std::default::Default for DrawParameters {
 
 impl DrawParameters {
     /// Checks parameters and panics if something is wrong.
-    fn validate(&self) {
+    fn validate(&self) -> Result<(), DrawError> {
         if self.depth_range.0 < 0.0 || self.depth_range.0 > 1.0 ||
            self.depth_range.1 < 0.0 || self.depth_range.1 > 1.0
         {
-            panic!("Depth range must be between 0 and 1");
+            return Err(DrawError::InvalidDepthRange);
         }
+
+        Ok(())
     }
 
-    /// Synchronizes the parmaeters with the current ctxt.state.
+    /// Synchronizes the parameters with the current ctxt.state.
     fn sync(&self, ctxt: &mut context::CommandContext, surface_dimensions: (u32, u32)) {
         // depth function
         match self.depth_function {
@@ -586,25 +705,80 @@ impl DrawParameters {
         }
 
         // blending function
-        match self.blending_function {
+        let blend_factors = match self.blending_function {
             Some(BlendingFunction::AlwaysReplace) => unsafe {
                 if ctxt.state.enabled_blend {
                     ctxt.gl.Disable(gl::BLEND);
                     ctxt.state.enabled_blend = false;
                 }
+                None
             },
-            Some(BlendingFunction::LerpBySourceAlpha) => unsafe {
-                if ctxt.state.blend_func != (gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA) {
-                    ctxt.gl.BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
-                    ctxt.state.blend_func = (gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            Some(BlendingFunction::Min) => unsafe {
+                if ctxt.state.blend_equation != gl::MIN {
+                    ctxt.gl.BlendEquation(gl::MIN);
+                    ctxt.state.blend_equation = gl::MIN;
                 }
                 if !ctxt.state.enabled_blend {
                     ctxt.gl.Enable(gl::BLEND);
                     ctxt.state.enabled_blend = true;
                 }
+                None
             },
-            _ => ()
-        }
+            Some(BlendingFunction::Max) => unsafe {
+                if ctxt.state.blend_equation != gl::MAX {
+                    ctxt.gl.BlendEquation(gl::MAX);
+                    ctxt.state.blend_equation = gl::MAX;
+                }
+                if !ctxt.state.enabled_blend {
+                    ctxt.gl.Enable(gl::BLEND);
+                    ctxt.state.enabled_blend = true;
+                }
+                None
+            },
+            Some(BlendingFunction::Addition { source, destination }) => unsafe {
+                if ctxt.state.blend_equation != gl::FUNC_ADD {
+                    ctxt.gl.BlendEquation(gl::FUNC_ADD);
+                    ctxt.state.blend_equation = gl::FUNC_ADD;
+                }
+                if !ctxt.state.enabled_blend {
+                    ctxt.gl.Enable(gl::BLEND);
+                    ctxt.state.enabled_blend = true;
+                }
+                Some((source, destination))
+            },
+            Some(BlendingFunction::Subtraction { source, destination }) => unsafe {
+                if ctxt.state.blend_equation != gl::FUNC_SUBTRACT {
+                    ctxt.gl.BlendEquation(gl::FUNC_SUBTRACT);
+                    ctxt.state.blend_equation = gl::FUNC_SUBTRACT;
+                }
+                if !ctxt.state.enabled_blend {
+                    ctxt.gl.Enable(gl::BLEND);
+                    ctxt.state.enabled_blend = true;
+                }
+                Some((source, destination))
+            },
+            Some(BlendingFunction::ReverseSubtraction { source, destination }) => unsafe {
+                if ctxt.state.blend_equation != gl::FUNC_REVERSE_SUBTRACT {
+                    ctxt.gl.BlendEquation(gl::FUNC_REVERSE_SUBTRACT);
+                    ctxt.state.blend_equation = gl::FUNC_REVERSE_SUBTRACT;
+                }
+                if !ctxt.state.enabled_blend {
+                    ctxt.gl.Enable(gl::BLEND);
+                    ctxt.state.enabled_blend = true;
+                }
+                Some((source, destination))
+            },
+            _ => None
+        };
+        if let Some((source, destination)) = blend_factors {
+            let source = source.to_glenum();
+            let destination = destination.to_glenum();
+
+            if ctxt.state.blend_func != (source, destination) {
+                unsafe { ctxt.gl.BlendFunc(source, destination) };
+                ctxt.state.blend_func = (source, destination);
+            }
+        };
 
         // line width
         if let Some(line_width) = self.line_width {
@@ -759,7 +933,7 @@ pub struct Rect {
     pub height: u32,
 }
 
-/// Object which can be drawn upon.
+/// Object that can be drawn upon.
 ///
 /// # What does the GPU do when you draw?
 ///
@@ -829,27 +1003,27 @@ pub struct Rect {
 /// Triangle strips obey certain rules for the order of indices. For example the triangle strip
 /// `0, 1, 2, 3, 4, 5` does *not* correspond to `0, 1, 2`, `1, 2, 3`, `2, 3, 4`, `3, 4, 5` as you
 /// would expect, but to `0, 1, 2`, `1, 3, 2`, `2, 3, 4`, `3, 5, 4` (some indices are reversed).
-/// This is important in regards to the face culling step below.
+/// This is important with regards to the face culling step below.
 ///
-/// Then if you did specify `PrimitiveMode`, it is used. If you specified `Line`, triangles are
+/// Then, if you did specify `PrimitiveMode`, it is used. If you specified `Line`, triangles are
 /// turned into lines. If specified `Point`, triangles and lines are turned into points.
 ///
 /// The GPU then looks at the screen coordinates of each primitive, and discards primitives that
 /// are entirely outside of the window.
 ///
-/// Note that points whose center are outside of the viewport are discarded, even if the point
+/// Note that points whose centers are outside of the viewport are discarded, even if the point
 /// width would be big enough for the point to be visible. However this standard behavior is not
-/// respected by nVidia drivers who show the points anyway.
+/// respected by nVidia drivers, which show the points anyway.
 ///
 /// ## Step 7: Face culling (triangles only)
 ///
 /// This step is purely an optimization step and only concerns triangles.
 ///
-/// If you specify a value for `backface_culling` different from `CullingDisabled`, the GPU will
+/// If you specify a value for `backface_culling` other than `CullingDisabled`, the GPU will
 /// discard triangles depending on the way that the vertices are arranged on the window. You can
 /// either discard triangles whose vertices are clockwise or counterclockwise.
 ///
-/// For more informations, see the documentation of `BackfaceCullingMode`.
+/// For more information, see the `BackfaceCullingMode` documentation.
 ///
 /// ## Step 8: Rasterization
 ///
@@ -899,7 +1073,7 @@ pub struct Rect {
 /// depth value.
 ///
 /// If a depth buffer is present, the GPU will compare the depth value of the pixel currently
-/// being processed and the existing depth value. Depending on the value of `depth_function`
+/// being processed, with the existing depth value. Depending on the value of `depth_function`
 /// in the draw parameters, the depth test will either pass, in which case the pipeline
 /// continues, or fail, in which case the pixel is discarded.
 ///
@@ -929,20 +1103,50 @@ pub struct Rect {
 /// Some steps are missing because they are not supported by glium for the moment: dithering,
 /// occlusion query updating, logic operations, sRGB conversion, write masks.
 ///
-/// Instancing and multiple viewports are also missing because not supported.
+/// Instancing and multiple viewports are also missing, as they are not supported.
 ///
 pub trait Surface: Sized {
-    /// Clears the color components of the target.
-    fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32);
+    /// Clears some attachments of the target.
+    fn clear(&mut self, color: Option<(f32, f32, f32, f32)>, depth: Option<f32>,
+             stencil: Option<i32>);
 
-    /// Clears the depth component of the target.
-    fn clear_depth(&mut self, value: f32);
+    /// Clears the color attachment of the target.
+    fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
+        self.clear(Some((red, green, blue, alpha)), None, None);
+    }
 
-    /// Clears the stencil component of the target.
-    fn clear_stencil(&mut self, value: i32);
+    /// Clears the depth attachment of the target.
+    fn clear_depth(&mut self, value: f32) {
+        self.clear(None, Some(value), None);
+    }
+
+    /// Clears the stencil attachment of the target.
+    fn clear_stencil(&mut self, value: i32) {
+        self.clear(None, None, Some(value));
+    }
+
+    /// Clears the color and depth attachments of the target.
+    fn clear_color_and_depth(&mut self, color: (f32, f32, f32, f32), depth: f32) {
+        self.clear(Some(color), Some(depth), None);
+    }
+
+    /// Clears the color and stencil attachments of the target.
+    fn clear_color_and_stencil(&mut self, color: (f32, f32, f32, f32), stencil: i32) {
+        self.clear(Some(color), None, Some(stencil));
+    }
+
+    /// Clears the depth and stencil attachments of the target.
+    fn clear_depth_and_stencil(&mut self, depth: f32, stencil: i32) {
+        self.clear(None, Some(depth), Some(stencil));
+    }
+
+    /// Clears the color, depth and stencil attachments of the target.
+    fn clear_all(&mut self, color: (f32, f32, f32, f32), depth: f32, stencil: i32) {
+        self.clear(Some(color), Some(depth), Some(stencil));
+    }
 
     /// Returns the dimensions in pixels of the target.
-    fn get_dimensions(&self) -> (uint, uint);
+    fn get_dimensions(&self) -> (u32, u32);
 
     /// Returns the number of bits of each pixel of the depth buffer.
     ///
@@ -978,9 +1182,10 @@ pub trait Surface: Sized {
     /// - Panics if the depth range is outside of `(0, 1)`.
     /// - Panics if a value in the uniforms doesn't match the type requested by the program.
     ///
-    fn draw<'a, 'b, V, I, ID, U>(&mut self, V, &I, program: &Program, uniforms: U,
-        draw_parameters: &DrawParameters) where V: vertex_buffer::IntoVerticesSource<'b>,
-        I: index_buffer::ToIndicesSource<ID>, U: uniforms::Uniforms;
+    fn draw<'a, 'b, V, I, U>(&mut self, V, &I, program: &Program, uniforms: U,
+        draw_parameters: &DrawParameters) -> Result<(), DrawError> where
+        V: vertex::MultiVerticesSource<'b>, I: index_buffer::ToIndicesSource,
+        U: uniforms::Uniforms;
 
     /// Returns an opaque type that is used by the implementation of blit functions.
     fn get_blit_helper(&self) -> BlitHelper;
@@ -995,8 +1200,8 @@ pub trait Surface: Sized {
     /// It is possible for the source and the target to be the same surface. However if the
     /// rectangles overlap, then the behavior is undefined.
     ///
-    /// Note that there is no alpha blending, depth/stencil checking, etc. or anything ; this
-    /// function just copies pixels.
+    /// Note that there is no alpha blending, depth/stencil checking, etc. This function just
+    /// copies pixels.
     #[experimental = "The name will likely change"]
     fn blit_color<S>(&self, source_rect: &Rect, target: &S, target_rect: &Rect,
         filter: uniforms::MagnifySamplerFilter) where S: Surface
@@ -1026,38 +1231,96 @@ pub trait Surface: Sized {
     }
 }
 
+/// Error that can happen while drawing.
+#[derive(Clone, Show)]
+pub enum DrawError {
+    /// A depth function has been requested but no depth buffer is available.
+    NoDepthBuffer,
+
+    /// The type of a vertex attribute in the vertices source doesn't match what the
+    /// program requires.
+    AttributeTypeMismatch,
+
+    /// One of the attributes required by the program is missing from the vertex format.
+    ///
+    /// Note that it is perfectly valid to have an attribute in the vertex format that is
+    /// not used by the program.
+    AttributeMissing,
+
+    /// The viewport's dimensions are not supported by the backend.
+    ViewportTooLarge,
+
+    /// The depth range is outside of the `(0, 1)` range.
+    InvalidDepthRange,
+
+    /// The type of a uniform doesn't match what the program requires.
+    UniformTypeMismatch {
+        /// Name of the uniform you are trying to bind.
+        name: String,
+        /// The expected type.
+        expected: uniforms::UniformType,
+    },
+
+    /// Tried to bind a uniform buffer to a single uniform value.
+    UniformBufferToValue {
+        /// Name of the uniform you are trying to bind.
+        name: String,
+    },
+
+    /// Tried to bind a single uniform value to a uniform block.
+    UniformValueToBlock {
+        /// Name of the uniform you are trying to bind.
+        name: String,
+    },
+
+    /// The layout of the content of the uniform buffer does not match the layout of the block.
+    UniformBlockLayoutMismatch {
+        /// Name of the block you are trying to bind.
+        name: String,
+    },
+
+    /// The number of vertices per patch that has been requested is not supported.
+    UnsupportedVerticesPerPatch,
+
+    /// Trying to use tessellation, but this is not supported by the underlying hardware.
+    TessellationNotSupported,
+
+    /// Using a program which contains tessellation shaders, but without submitting patches.
+    TessellationWithoutPatches,
+
+    /// Trying to use a sampler, but they are not supported by the backend.
+    SamplersNotSupported,
+
+    /// When you use instancing, all vertices sources must have the same size.
+    InstancesCountMismatch,
+}
+
 #[doc(hidden)]
 pub struct BlitHelper<'a>(&'a Arc<DisplayImpl>, Option<&'a fbo::FramebufferAttachments>);
 
-/// Implementation of `Surface` targetting the default framebuffer.
+/// Implementation of `Surface`, targeting the default framebuffer.
 ///
 /// The back- and front-buffers are swapped when the `Frame` is destroyed. This operation is
 /// instantaneous, even when vsync is enabled.
-pub struct Frame<'a> {
+pub struct Frame {
     display: Display,
-    dimensions: (uint, uint),
+    dimensions: (u32, u32),
 }
 
-impl<'t> Frame<'t> {
-    /// Stop drawing and swap the buffers.
+impl Frame {
+    /// Stop drawing, and swap the buffers.
     pub fn finish(self) {
     }
 }
 
-impl<'t> Surface for Frame<'t> {
-    fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
-        ops::clear_color(&self.display.context, None, red, green, blue, alpha)
+impl Surface for Frame {
+    fn clear(&mut self, color: Option<(f32, f32, f32, f32)>, depth: Option<f32>,
+             stencil: Option<i32>)
+    {
+        ops::clear(&self.display.context, None, color, depth, stencil);
     }
 
-    fn clear_depth(&mut self, value: f32) {
-        ops::clear_depth(&self.display.context, None, value)
-    }
-
-    fn clear_stencil(&mut self, value: i32) {
-        ops::clear_stencil(&self.display.context, None, value)
-    }
-
-    fn get_dimensions(&self) -> (uint, uint) {
+    fn get_dimensions(&self) -> (u32, u32) {
         self.dimensions
     }
 
@@ -1069,29 +1332,33 @@ impl<'t> Surface for Frame<'t> {
         self.display.context.context.capabilities().stencil_bits
     }
 
-    fn draw<'a, 'b, V, I, ID, U>(&mut self, vertex_buffer: V,
+    fn draw<'a, 'b, V, I, U>(&mut self, vertex_buffer: V,
                          index_buffer: &I, program: &Program, uniforms: U,
-                         draw_parameters: &DrawParameters)
-                         where I: index_buffer::ToIndicesSource<ID>, U: uniforms::Uniforms,
-                         ID: index_buffer::Index, V: vertex_buffer::IntoVerticesSource<'b>
+                         draw_parameters: &DrawParameters) -> Result<(), DrawError>
+                         where I: index_buffer::ToIndicesSource, U: uniforms::Uniforms,
+                         V: vertex::MultiVerticesSource<'b>
     {
         use index_buffer::ToIndicesSource;
 
-        draw_parameters.validate();
-
         if draw_parameters.depth_function.requires_depth_buffer() && !self.has_depth_buffer() {
-            panic!("Requested a depth function but no depth buffer is attached");
+            return Err(DrawError::NoDepthBuffer);
         }
 
         if let Some(viewport) = draw_parameters.viewport {
-            assert!(viewport.width <= self.display.context.context.capabilities().max_viewport_dims.0
-                    as u32, "Viewport dimensions are too large");
-            assert!(viewport.height <= self.display.context.context.capabilities().max_viewport_dims.1
-                    as u32, "Viewport dimensions are too large");
+            if viewport.width > self.display.context.context.capabilities().max_viewport_dims.0
+                    as u32
+            {
+                return Err(DrawError::ViewportTooLarge);
+            }
+            if viewport.height > self.display.context.context.capabilities().max_viewport_dims.1
+                    as u32
+            {
+                return Err(DrawError::ViewportTooLarge);
+            }
         }
 
-        ops::draw(&self.display, None, vertex_buffer.into_vertices_source(),
-                  &index_buffer.to_indices_source(), program, uniforms, draw_parameters,
+        ops::draw(&self.display, None, vertex_buffer.build_vertices_source().as_mut_slice(),
+                  index_buffer.to_indices_source(), program, uniforms, draw_parameters,
                   (self.dimensions.0 as u32, self.dimensions.1 as u32))
     }
 
@@ -1101,7 +1368,7 @@ impl<'t> Surface for Frame<'t> {
 }
 
 #[unsafe_destructor]
-impl<'t> Drop for Frame<'t> {
+impl Drop for Frame {
     fn drop(&mut self) {
         self.display.context.context.swap_buffers();
     }
@@ -1111,7 +1378,7 @@ impl<'t> Drop for Frame<'t> {
 pub trait DisplayBuild {
     /// Build a context and a `Display` to draw on it.
     ///
-    /// Performances a compatibility check to make sure that all core elements of glium
+    /// Performs a compatibility check to make sure that all core elements of glium
     /// are supported by the implementation.
     fn build_glium(self) -> Result<Display, GliumCreationError>;
 }
@@ -1192,7 +1459,7 @@ impl DisplayBuild for glutin::HeadlessRendererBuilder {
 ///
 /// This object contains a smart pointer to the real implementation.
 /// Cloning the display allows you to easily share the `Display` object throughout
-///  your program and between threads.
+/// your program and between threads.
 #[derive(Clone)]
 pub struct Display {
     context: Arc<DisplayImpl>,
@@ -1211,12 +1478,12 @@ struct DisplayImpl {
     framebuffer_objects: Option<fbo::FramebuffersContainer>,
 
     // we maintain a list of VAOs for each vertexbuffer-indexbuffer-program association
-    // the key is a (vertexbuffer, program)
-    vertex_array_objects: Mutex<HashMap<(gl::types::GLuint, gl::types::GLuint, gl::types::GLuint),
+    // the key is a (buffers-list, program) ; the buffers list must be sorted
+    vertex_array_objects: Mutex<HashMap<(Vec<gl::types::GLuint>, gl::types::GLuint),
                                         vertex_array_object::VertexArrayObject>>,
 
     // we maintain a list of samplers for each possible behavior
-    samplers: Mutex<HashMap<uniforms::SamplerBehavior, uniforms::SamplerObject>>,
+    samplers: Mutex<HashMap<uniforms::SamplerBehavior, sampler_object::SamplerObject>>,
 }
 
 impl Display {
@@ -1226,13 +1493,13 @@ impl Display {
     }
 
     /// Returns the dimensions of the main framebuffer.
-    pub fn get_framebuffer_dimensions(&self) -> (uint, uint) {
+    pub fn get_framebuffer_dimensions(&self) -> (u32, u32) {
         self.context.context.get_framebuffer_dimensions()
     }
 
     /// Start drawing on the backbuffer.
     ///
-    /// This function returns a `Frame` which can be used to draw on it. When the `Frame` is
+    /// This function returns a `Frame`, which can be used to draw on it. When the `Frame` is
     /// destroyed, the buffers are swapped.
     ///
     /// Note that destroying a `Frame` is immediate, even if vsync is enabled.
@@ -1249,9 +1516,9 @@ impl Display {
         self.context.context.capabilities().max_texture_max_anisotropy.map(|v| v as u16)
     }
 
-    /// Returns the maximum dimensions of the viewport that you can pass when drawing.
+    /// Returns the maximum dimensions of the viewport.
     ///
-    /// Glium will panic if you request a larger viewport.
+    /// Glium will panic if you request a larger viewport than this when drawing.
     pub fn get_max_viewport_dimensions(&self) -> (u32, u32) {
         let d = self.context.context.capabilities().max_viewport_dims;
         (d.0 as u32, d.1 as u32)
@@ -1276,7 +1543,7 @@ impl Display {
     /// Returns an estimate of the amount of video memory available in bytes.
     ///
     /// Returns `None` if no estimate is available.
-    pub fn get_free_video_memory(&self) -> Option<uint> {
+    pub fn get_free_video_memory(&self) -> Option<usize> {
         let (tx, rx) = channel();
 
         self.context.context.exec(move |: ctxt| {
@@ -1301,7 +1568,7 @@ impl Display {
             }
         });
 
-        rx.recv().unwrap().map(|v| v as uint * 1024)
+        rx.recv().unwrap().map(|v| v as usize * 1024)
     }
 
     /// Sets the callback to use when an OpenGL debug message is generated.
@@ -1357,9 +1624,9 @@ impl Display {
 
                 if let &mut Some(ref mut callback) = callback {
                     callback.call_mut((message.to_string(),
-                        FromPrimitive::from_uint(source as uint).unwrap_or(debug::Source::OtherSource),
-                        FromPrimitive::from_uint(ty as uint).unwrap_or(debug::MessageType::Other),
-                        FromPrimitive::from_uint(severity as uint).unwrap_or(debug::Severity::Notification)));
+                        FromPrimitive::from_uint(source as usize).unwrap_or(debug::Source::OtherSource),
+                        FromPrimitive::from_uint(ty as usize).unwrap_or(debug::MessageType::Other),
+                        FromPrimitive::from_uint(severity as usize).unwrap_or(debug::Severity::Notification)));
                 }
             }
         }
@@ -1405,10 +1672,9 @@ impl Display {
     ///
     /// ## Example
     ///
-    /// ```noçrun
+    /// ```no_run
     /// # extern crate glium;
     /// # extern crate glutin;
-    /// # use glium::DisplayBuild;
     /// # fn main() {
     /// # let display: glium::Display = unsafe { ::std::mem::uninitialized() };
     /// let pixels: Vec<Vec<(u8, u8, u8)>> = display.read_front_buffer();
@@ -1421,14 +1687,14 @@ impl Display {
         ops::read_from_default_fb(gl::FRONT_LEFT, self)
     }
 
-    /// Asserts that there are no OpenGL error pending.
+    /// Asserts that there are no OpenGL errors pending.
     ///
-    /// This function is supposed to be used in tests.
+    /// This function should be used in tests.
     pub fn assert_no_error(&self) {
         let (tx, rx) = channel();
 
-        self.context.context.exec(move |: ctxt| {
-            tx.send(get_gl_error(ctxt)).ok();
+        self.context.context.exec(move |: mut ctxt| {
+            tx.send(get_gl_error(&mut ctxt)).ok();
         });
 
         match rx.recv().unwrap() {
@@ -1439,8 +1705,8 @@ impl Display {
 
     /// Waits until all the previous commands have finished being executed.
     ///
-    /// When you execute OpenGL functions, they are not executed immediatly. Instead they are
-    /// put in a queue. This function waits until all commands have finished being executed and
+    /// When you execute OpenGL functions, they are not executed immediately. Instead they are
+    /// put in a queue. This function waits until all commands have finished being executed, and
     /// the queue is empty.
     ///
     /// **You don't need to call this function manually, except when running benchmarks.**
@@ -1489,7 +1755,7 @@ impl Drop for DisplayImpl {
 }
 
 #[allow(dead_code)]
-fn get_gl_error(ctxt: context::CommandContext) -> Option<&'static str> {
+fn get_gl_error(ctxt: &mut context::CommandContext) -> Option<&'static str> {
     match unsafe { ctxt.gl.GetError() } {
         gl::NO_ERROR => None,
         gl::INVALID_ENUM => Some("GL_INVALID_ENUM"),
@@ -1497,8 +1763,8 @@ fn get_gl_error(ctxt: context::CommandContext) -> Option<&'static str> {
         gl::INVALID_OPERATION => Some("GL_INVALID_OPERATION"),
         gl::INVALID_FRAMEBUFFER_OPERATION => Some("GL_INVALID_FRAMEBUFFER_OPERATION"),
         gl::OUT_OF_MEMORY => Some("GL_OUT_OF_MEMORY"),
-        /*gl::STACK_UNDERFLOW => Some("GL_STACK_UNDERFLOW"),
-        gl::STACK_OVERFLOW => Some("GL_STACK_OVERFLOW"),*/
+        gl::STACK_UNDERFLOW => Some("GL_STACK_UNDERFLOW"),
+        gl::STACK_OVERFLOW => Some("GL_STACK_OVERFLOW"),
         _ => Some("Unknown glGetError return value")
     }
 }

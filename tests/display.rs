@@ -12,14 +12,13 @@ use glium::Surface;
 mod support;
 
 #[test]
-fn display_clear_color() {
+fn clear_color() {
     let display = support::build_display();
 
-    let mut target = display.draw();
-    target.clear_color(1.0, 0.0, 0.0, 1.0);
-    target.finish();
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(1.0, 0.0, 0.0, 1.0);
 
-    let data: Vec<Vec<(f32, f32, f32)>> = display.read_front_buffer();
+    let data: Vec<Vec<(f32, f32, f32)>> = texture.read();
 
     for row in data.iter() {
         for pixel in row.iter() {
@@ -38,7 +37,6 @@ fn release_shader_compiler() {
 }
 
 #[test]
-#[should_fail(expected = "Viewport dimensions are too large")]
 fn viewport_too_large() {
     let display = support::build_display();
 
@@ -53,7 +51,13 @@ fn viewport_too_large() {
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-    display.draw().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params);
+    
+    match display.draw().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params) {
+        Err(glium::DrawError::ViewportTooLarge) => (),
+        a => panic!("{:?}", a)
+    };
+
+    display.assert_no_error();
 }
 
 #[test]
@@ -75,7 +79,6 @@ fn timestamp_query() {
 }
 
 #[test]
-#[should_fail(expected = "Depth range must be between 0 and 1")]
 fn wrong_depth_range() {
     let display = support::build_display();
 
@@ -85,7 +88,13 @@ fn wrong_depth_range() {
     };
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
-    display.draw().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params);
+    
+    match display.draw().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params) {
+        Err(glium::DrawError::InvalidDepthRange) => (),
+        a => panic!("{:?}", a)
+    };
+
+    display.assert_no_error();
 }
 
 #[test]
@@ -104,12 +113,11 @@ fn scissor() {
 
     let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
 
-    let mut target = display.draw();
-    target.clear_color(0.0, 0.0, 0.0, 0.0);
-    target.draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params);
-    target.finish();
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params).unwrap();
 
-    let data: Vec<Vec<(f32, f32, f32)>> = display.read_front_buffer();
+    let data: Vec<Vec<(f32, f32, f32)>> = texture.read();
 
     assert_eq!(data[0][0], (1.0, 0.0, 0.0));
     assert_eq!(data[1][0], (0.0, 0.0, 0.0));
@@ -121,6 +129,16 @@ fn scissor() {
             assert_eq!(pixel, &(0.0, 0.0, 0.0));
         }
     }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn sync() {    
+    let display = support::build_display();
+
+    let fence = glium::SyncFence::new_if_supported(&display);
+    fence.map(|f| f.wait());
 
     display.assert_no_error();
 }

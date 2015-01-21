@@ -46,12 +46,11 @@ fn uniforms_storage_single_value() {
 
     let uniforms = glium::uniforms::UniformsStorage::new("color", [1.0, 0.0, 0.0, 0.5f32]);
 
-    let mut target = display.draw();
-    target.clear_color(0.0, 0.0, 0.0, 0.0);
-    target.draw(&vb, &ib, &program, &uniforms, &Default::default());
-    target.finish();
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &uniforms, &Default::default()).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8)>> = display.read_front_buffer();
+    let data: Vec<Vec<(u8, u8, u8)>> = texture.read();
     assert_eq!(data[0][0], (255, 0, 0));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0));
 
@@ -88,12 +87,11 @@ fn uniforms_storage_multiple_values() {
     let uniforms = glium::uniforms::UniformsStorage::new("color1", [0.7, 0.0, 0.0, 0.5f32]);
     let uniforms = uniforms.add("color2", [0.3, 0.0, 0.0, 0.5f32]);
 
-    let mut target = display.draw();
-    target.clear_color(0.0, 0.0, 0.0, 0.0);
-    target.draw(&vb, &ib, &program, &uniforms, &Default::default());
-    target.finish();
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &uniforms, &Default::default()).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8)>> = display.read_front_buffer();
+    let data: Vec<Vec<(u8, u8, u8)>> = texture.read();
     assert_eq!(data[0][0], (255, 0, 0));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0));
 
@@ -130,12 +128,11 @@ fn uniforms_storage_ignore_inactive_uniforms() {
     let uniforms = uniforms.add("color2", 0.8f32);
     let uniforms = uniforms.add("color3", [0.1, 1.2f32]);
 
-    let mut target = display.draw();
-    target.clear_color(0.0, 0.0, 0.0, 0.0);
-    target.draw(&vb, &ib, &program, &uniforms, &Default::default());
-    target.finish();
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &uniforms, &Default::default()).unwrap();
 
-    let data: Vec<Vec<(u8, u8, u8)>> = display.read_front_buffer();
+    let data: Vec<Vec<(u8, u8, u8)>> = texture.read();
     assert_eq!(data[0][0], (255, 0, 0));
     assert_eq!(data.last().unwrap().last().unwrap(), &(255, 0, 0));
     
@@ -143,7 +140,6 @@ fn uniforms_storage_ignore_inactive_uniforms() {
 }
 
 #[test]
-#[should_fail]
 fn uniform_wrong_type() {    
     let display = support::build_display();
     let (vb, ib) = support::build_rectangle_vb_ib(&display);
@@ -173,5 +169,11 @@ fn uniform_wrong_type() {
 
     let mut target = display.draw();
     target.clear_color(0.0, 0.0, 0.0, 0.0);
-    target.draw(&vb, &ib, &program, &uniforms, &Default::default());
+    match target.draw(&vb, &ib, &program, &uniforms, &Default::default()) {
+        Err(glium::DrawError::UniformTypeMismatch { .. }) => (),
+        a => panic!("{:?}", a)
+    };
+    target.finish();
+
+    display.assert_no_error();
 }

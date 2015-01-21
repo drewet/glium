@@ -49,7 +49,7 @@ pub enum ClientFormat {
 
 impl ClientFormat {
     /// Returns the size in bytes of a pixel of this type.
-    pub fn get_size(&self) -> uint {
+    pub fn get_size(&self) -> usize {
         use std::mem;
 
         match *self {
@@ -286,7 +286,7 @@ impl ClientFormat {
     }
 }
 
-/// List of uncompressed pixel formats that contain floating points-like data.
+/// List of uncompressed pixel formats that contain floating-point-like data.
 ///
 /// Some formats are marked as "guaranteed to be supported". What this means is that you are
 /// certain that the backend will use exactly these formats. If you try to use a format that
@@ -573,7 +573,7 @@ impl ToGlEnum for CompressedFormat {
 pub enum DepthFormat {
     I16,
     I24,
-    /// May not be supported by all hardwares.
+    /// May not be supported by all hardware.
     I32,
     F32,
 }

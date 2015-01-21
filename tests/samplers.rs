@@ -53,12 +53,16 @@ fn magnify_nearest_filtering() {
             .. Default::default()
         }));
 
-    let mut target = display.draw();
-    target.clear_color(0.0, 0.0, 0.0, 0.0);
-    target.draw(&vb, &ib, &program, &uniforms, &Default::default());
-    target.finish();
+    let output = support::build_renderable_texture(&display);
+    output.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
 
-    let data: Vec<Vec<(u8, u8, u8)>> = display.read_front_buffer();
+    match output.as_surface().draw(&vb, &ib, &program, &uniforms, &Default::default()) {
+        Ok(_) => (),
+        Err(glium::DrawError::SamplersNotSupported) => return,
+        Err(e) => panic!("{:?}", e)
+    };
+
+    let data: Vec<Vec<(u8, u8, u8)>> = output.read();
     assert_eq!(data[0][0], (255, 255, 255));
 
     display.assert_no_error();

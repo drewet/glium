@@ -4,6 +4,8 @@
 extern crate glium_macros;
 
 extern crate glutin;
+
+#[macro_use]
 extern crate glium;
 
 use glium::Surface;
@@ -70,13 +72,6 @@ fn main() {
         // geometry shader
         None)
         .unwrap();
-
-    // creating the uniforms structure
-    #[uniforms]
-    #[derive(Copy)]
-    struct Uniforms {
-        matrix: [[f32; 4]; 4],
-    }
     
     // the main loop
     // each cycle will draw once
@@ -85,7 +80,7 @@ fn main() {
         use std::time::Duration;
 
         // building the uniforms
-        let uniforms = Uniforms {
+        let uniforms = uniform! {
             matrix: [
                 [1.0, 0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],
@@ -97,7 +92,7 @@ fn main() {
         // drawing a frame
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 0.0, 0.0);
-        target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &std::default::Default::default());
+        target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &std::default::Default::default()).unwrap();
         target.finish();
 
         // sleeping for some time in order not to use up too much CPU

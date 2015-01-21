@@ -1,5 +1,5 @@
 /*!
-Framebuffers allows you to customize the color, depth and stencil buffers you will draw on.
+Framebuffers allow you to customize the color, depth and stencil buffers you will draw on.
 
 In order to draw on a texture, use a `SimpleFrameBuffer`. This framebuffer is compatible with
 shaders that write to `gl_FragColor`.
@@ -11,7 +11,7 @@ let framebuffer = glium::framebuffer::SimpleFrameBuffer::new(&display, &texture)
 // framebuffer.draw(...);    // draws over `texture`
 ```
 
-Instead if your shader wants to write to multiple color buffers at once, you must use
+If, however, your shader wants to write to multiple color buffers at once, you must use
 a `MultiOutputFrameBuffer`.
 
 ```no_run
@@ -44,6 +44,7 @@ use texture::{Texture, Texture2d, DepthTexture2d, StencilTexture2d, DepthStencil
 use fbo::FramebufferAttachments;
 
 use {Display, Program, Surface, GlObject};
+use DrawError;
 
 use {fbo, gl, ops};
 
@@ -92,7 +93,7 @@ impl<'a> SimpleFrameBuffer<'a> {
     }
 
     /// Creates a `SimpleFrameBuffer` with a single color attachment and a stencil
-    /// buffer, but no buffer buffer.
+    /// buffer, but no depth buffer.
     pub fn with_stencil_buffer<C, S>(display: &Display, color: &'a C, stencil: &'a S)
                                      -> SimpleFrameBuffer<'a>
                                      where C: ToColorAttachment, S: ToStencilAttachment
@@ -182,20 +183,14 @@ impl<'a> SimpleFrameBuffer<'a> {
 }
 
 impl<'a> Surface for SimpleFrameBuffer<'a> {
-    fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
-        ops::clear_color(&self.display.context, Some(&self.attachments), red, green, blue, alpha)
+    fn clear(&mut self, color: Option<(f32, f32, f32, f32)>, depth: Option<f32>,
+             stencil: Option<i32>)
+    {
+        ops::clear(&self.display.context, Some(&self.attachments), color, depth, stencil);
     }
 
-    fn clear_depth(&mut self, value: f32) {
-        ops::clear_depth(&self.display.context, Some(&self.attachments), value)
-    }
-
-    fn clear_stencil(&mut self, value: i32) {
-        ops::clear_stencil(&self.display.context, Some(&self.attachments), value)
-    }
-
-    fn get_dimensions(&self) -> (uint, uint) {
-        (self.dimensions.0 as uint, self.dimensions.1 as uint)
+    fn get_dimensions(&self) -> (u32, u32) {
+        (self.dimensions.0 as u32, self.dimensions.1 as u32)
     }
 
     fn get_depth_buffer_bits(&self) -> Option<u16> {
@@ -206,27 +201,32 @@ impl<'a> Surface for SimpleFrameBuffer<'a> {
         self.stencil_buffer_bits
     }
 
-    fn draw<'b, 'v, V, I, ID, U>(&mut self, vb: V, ib: &I, program: &::Program,
-        uniforms: U, draw_parameters: &::DrawParameters) where I: ::index_buffer::ToIndicesSource<ID>,
-        U: ::uniforms::Uniforms, ID: ::index_buffer::Index, V: ::vertex_buffer::IntoVerticesSource<'v>
+    fn draw<'b, 'v, V, I, U>(&mut self, vb: V, ib: &I, program: &::Program,
+        uniforms: U, draw_parameters: &::DrawParameters) -> Result<(), DrawError>
+        where I: ::index_buffer::ToIndicesSource, U: ::uniforms::Uniforms,
+        V: ::vertex::MultiVerticesSource<'v>
     {
         use index_buffer::ToIndicesSource;
-        
-        draw_parameters.validate();
 
         if draw_parameters.depth_function.requires_depth_buffer() && !self.has_depth_buffer() {
-            panic!("Requested a depth function but no depth buffer is attached");
+            return Err(DrawError::NoDepthBuffer);
         }
 
         if let Some(viewport) = draw_parameters.viewport {
-            assert!(viewport.width <= self.display.context.context.capabilities().max_viewport_dims.0
-                    as u32, "Viewport dimensions are too large");
-            assert!(viewport.height <= self.display.context.context.capabilities().max_viewport_dims.1
-                    as u32, "Viewport dimensions are too large");
+            if viewport.width > self.display.context.context.capabilities().max_viewport_dims.0
+                    as u32
+            {
+                return Err(DrawError::ViewportTooLarge);
+            }
+            if viewport.height > self.display.context.context.capabilities().max_viewport_dims.1
+                    as u32
+            {
+                return Err(DrawError::ViewportTooLarge);
+            }
         }
 
-        ops::draw(&self.display, Some(&self.attachments), vb.into_vertices_source(),
-                  &ib.to_indices_source(), program, uniforms, draw_parameters, self.dimensions)
+        ops::draw(&self.display, Some(&self.attachments), vb.build_vertices_source().as_mut_slice(),
+                  ib.to_indices_source(), program, uniforms, draw_parameters, self.dimensions)
     }
 
     fn get_blit_helper(&self) -> ::BlitHelper {
@@ -247,12 +247,11 @@ pub struct MultiOutputFrameBuffer<'a> {
 }
 
 impl<'a> MultiOutputFrameBuffer<'a> {
-    /// Creates a new `MultiOutputFramebuffer`.
+    /// Creates a new `MultiOutputFrameBuffer`.
     ///
     /// # Panic
     ///
     /// Panics if all attachments don't have the same dimensions.
-    ///
     pub fn new(display: &Display, color_attachments: &[(&str, &'a Texture2d)])
                -> MultiOutputFrameBuffer<'a>
     {
@@ -263,6 +262,11 @@ impl<'a> MultiOutputFrameBuffer<'a> {
                                          None::<&render_buffer::StencilRenderBuffer>)
     }
 
+    /// Creates a `MultiOutputFrameBuffer` with a depth buffer.
+    ///
+    /// # Panic
+    ///
+    /// Panics if all attachments don't have the same dimensions.
     pub fn with_depth_buffer<D>(display: &Display, color_attachments: &[(&str, &'a Texture2d)],
                                 depth: &'a D) -> MultiOutputFrameBuffer<'a>
                                 where D: ToDepthAttachment
@@ -357,15 +361,9 @@ impl<'a> MultiOutputFrameBuffer<'a> {
 }
 
 impl<'a> Surface for MultiOutputFrameBuffer<'a> {
-    fn clear_color(&mut self, red: f32, green: f32, blue: f32, alpha: f32) {
-        unimplemented!()
-    }
-
-    fn clear_depth(&mut self, value: f32) {
-        unimplemented!()
-    }
-
-    fn clear_stencil(&mut self, value: i32) {
+    fn clear(&mut self, color: Option<(f32, f32, f32, f32)>, depth: Option<f32>,
+             stencil: Option<i32>)
+    {
         unimplemented!()
     }
 
@@ -373,8 +371,8 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         unimplemented!()
     }
 
-    fn get_dimensions(&self) -> (uint, uint) {
-        (self.dimensions.0 as uint, self.dimensions.1 as uint)
+    fn get_dimensions(&self) -> (u32, u32) {
+        (self.dimensions.0 as u32, self.dimensions.1 as u32)
     }
 
     fn get_depth_buffer_bits(&self) -> Option<u16> {
@@ -385,27 +383,33 @@ impl<'a> Surface for MultiOutputFrameBuffer<'a> {
         self.stencil_buffer_bits
     }
 
-    fn draw<'v, V, I, ID, U>(&mut self, vb: V, ib: &I, program: &::Program,
-        uniforms: U, draw_parameters: &::DrawParameters) where I: ::index_buffer::ToIndicesSource<ID>,
-        U: ::uniforms::Uniforms, ID: ::index_buffer::Index, V: ::vertex_buffer::IntoVerticesSource<'v>
+    fn draw<'v, V, I, U>(&mut self, vb: V, ib: &I, program: &::Program,
+        uniforms: U, draw_parameters: &::DrawParameters) -> Result<(), DrawError>
+        where I: ::index_buffer::ToIndicesSource,
+        U: ::uniforms::Uniforms, V: ::vertex::MultiVerticesSource<'v>
     {
         use index_buffer::ToIndicesSource;
-        
-        draw_parameters.validate();
 
         if draw_parameters.depth_function.requires_depth_buffer() && !self.has_depth_buffer() {
-            panic!("Requested a depth function but no depth buffer is attached");
+            return Err(DrawError::NoDepthBuffer);
         }
 
         if let Some(viewport) = draw_parameters.viewport {
-            assert!(viewport.width <= self.display.context.context.capabilities().max_viewport_dims.0
-                    as u32, "Viewport dimensions are too large");
-            assert!(viewport.height <= self.display.context.context.capabilities().max_viewport_dims.1
-                    as u32, "Viewport dimensions are too large");
+            if viewport.width > self.display.context.context.capabilities().max_viewport_dims.0
+                    as u32
+            {
+                return Err(DrawError::ViewportTooLarge);
+            }
+            if viewport.height > self.display.context.context.capabilities().max_viewport_dims.1
+                    as u32
+            {
+                return Err(DrawError::ViewportTooLarge);
+            }
         }
 
-        ops::draw(&self.display, Some(&self.build_attachments(program)), vb.into_vertices_source(),
-                  &ib.to_indices_source(), program, uniforms, draw_parameters, self.dimensions)
+        ops::draw(&self.display, Some(&self.build_attachments(program)),
+                  vb.build_vertices_source().as_mut_slice(),
+                  ib.to_indices_source(), program, uniforms, draw_parameters, self.dimensions)
     }
 }
 

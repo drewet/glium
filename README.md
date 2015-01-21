@@ -18,7 +18,7 @@ Its objectives:
  - Be compatible with the lowest OpenGL version possible, but still use 4.5 features if they are available.
  - Be compatible with both OpenGL and OpenGL ES.
 
-## [Link to the documentation](http://tomaka.github.io/glium)
+## [Link to the documentation](http://tomaka.github.io/glium/glium/index.html)
 
 The documentation contains examples showing how to use Glium.
 
@@ -47,12 +47,16 @@ Easy to use:
    everything is done by parameter passing. The same set of function calls will always produce
    the same results.
 
+ - Glium handles framebuffer objects, samplers, and vertex array objects for you. You no longer
+   need to create them explicitely as they are automatically created when needed and destroyed
+   when their corresponding object is destroyed.
+
 Safety:
 
  - Glium detects what would normally be errors or undefined behaviors in OpenGL, and panics,
-   without calling `glGetError`. Examples include requesting a depth test when you don't have a
-   depth buffer available, not binding any value to an attribute or uniform, or binding textures
-   with different dimensions to the same framebuffer.
+   without calling `glGetError` which would be too slow. Examples include requesting a depth test
+   when you don't have a depth buffer available, not binding any value to an attribute or uniform,
+   or binding multiple textures with different dimensions to the same framebuffer.
 
  - If the OpenGL context triggers an error, then you have found a bug in Glium. Please open
    an issue. Just like Rust does everything it can to avoid crashes, Glium does everything
@@ -94,21 +98,27 @@ Performances:
    you then call `draw` with `IfGreater`, then only `glDepthFunc(GL_GREATER)` will be called.
 
  - Just like Rust is theoretically slower than C because of additional safety checks, Glium is
-   theoretically slower than perfectly-optimized raw OpenGL calls. However in practice the
+   theoretically slower than well-prepared and optimized raw OpenGL calls. However in practice
    the difference is very low, if not negligible.
 
 ## Features
 
-Glium has six features:
+Glium has four Cargo features:
 
  - `image` allows support for the `image` library, which allows easy creation of textures from different image formats.
  - `cgmath` and `nalgebra` add support for these libraries' matrices and vectors.
  - `headless`, which enables headless building and testing.
- - `gl_extensions`
- - `gles_extensions`
 
-If you disable both `gl_extensions` and `gles_extensions`, then only the functionality that
-is available in both OpenGL 3 and OpenGL ES 2 will be available at compile-time.
+In addition to this, it has the following OpenGL-related features:
 
-Enabling either `gl_extensions` or `gles_extensions` will unlock this functionality, but will
-trigger a `panic!` if used when not available on the target hardware.
+ - `gl_read_buffer` (read the content of a buffer)
+ - `gl_uniform_blocks` (bind buffers to uniform blocks)
+ - `gl_sync` (synchronization objects)
+ - `gl_persistent_mapping` (buffers permanently mapped in memory)
+ - `gl_program_binary` (cache a compiled program in order to reload it faster next time)
+ - `gl_tessellation` (ask the GPU to split primitives into multiple sub-primitives when rendering)
+ - `gl_instancing` (draw multiple times the same model in only one command)
+
+Enabling each of these features adds more restrictions towards the backend and increases the
+likehood that `build_glium` will return an `Err`. However, it also gives you access to more
+functions with different signatures.

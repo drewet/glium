@@ -36,14 +36,14 @@ impl TextureImplementation {
         use std::num::Float;
 
         if let Some(ref data) = data {
-            if width as uint * height.unwrap_or(1) as uint * depth.unwrap_or(1) as uint *
-                array_size.unwrap_or(1) as uint != data.len() &&
-               width as uint * height.unwrap_or(1) as uint * depth.unwrap_or(1) as uint *
-                array_size.unwrap_or(1) as uint * 2 != data.len() &&
-               width as uint * height.unwrap_or(1) as uint * depth.unwrap_or(1) as uint *
-                array_size.unwrap_or(1) as uint * 3 != data.len() &&
-               width as uint * height.unwrap_or(1) as uint * depth.unwrap_or(1) as uint *
-                array_size.unwrap_or(1) as uint * 4 != data.len()
+            if width as usize * height.unwrap_or(1) as usize * depth.unwrap_or(1) as usize *
+                array_size.unwrap_or(1) as usize != data.len() &&
+               width as usize * height.unwrap_or(1) as usize * depth.unwrap_or(1) as usize *
+                array_size.unwrap_or(1) as usize * 2 != data.len() &&
+               width as usize * height.unwrap_or(1) as usize * depth.unwrap_or(1) as usize *
+                array_size.unwrap_or(1) as usize * 3 != data.len() &&
+               width as usize * height.unwrap_or(1) as usize * depth.unwrap_or(1) as usize *
+                array_size.unwrap_or(1) as usize * 4 != data.len()
             {
                 panic!("Texture data size mismatch");
             }
@@ -202,7 +202,7 @@ impl TextureImplementation {
         assert_eq!(level, 0);   // TODO:
 
         let size = self.width as usize * self.height.unwrap_or(1) as usize *
-                   Texture2dData::get_format(None::<T>).get_size();
+                   <T as Texture2dData>::get_format().get_size();
 
         let mut pb = PixelBuffer::new_empty(&self.display, size);
         ops::read_attachment_to_pb(&fbo::Attachment::Texture(self.id), (self.width,
@@ -210,7 +210,7 @@ impl TextureImplementation {
         pb
     }
 
-    /// Returns the `Display` associated to this texture.
+    /// Returns the `Display` associated with this texture.
     pub fn get_display(&self) -> &Display {
         &self.display
     }
@@ -230,7 +230,7 @@ impl TextureImplementation {
         self.depth.clone()
     }
 
-    /// Returns the size of array of the texture.
+    /// Returns the array size of the texture.
     pub fn get_array_size(&self) -> Option<u32> {
         self.array_size.clone()
     }
@@ -243,9 +243,10 @@ impl GlObject for TextureImplementation {
 }
 
 impl fmt::Show for TextureImplementation {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        (format!("Texture #{:?} (dimensions: {:?}x{:?}x{:?})", self.id,
-            self.width, self.height, self.depth)).fmt(formatter)
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(fmt, "Texture #{} (dimensions: {}x{}x{}x{})", self.id,
+               self.width, self.height.unwrap_or(1), self.depth.unwrap_or(1),
+               self.array_size.unwrap_or(1))
     }
 }
 
