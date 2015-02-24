@@ -1,14 +1,11 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
 
 #[macro_use]
 extern crate glium;
 
 use glium::Surface;
+
+mod support;
 
 fn main() {
     use glium::DisplayBuild;
@@ -20,11 +17,12 @@ fn main() {
 
     // building the vertex buffer, which contains all the vertices that we will draw
     let vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 2]
         }
+
+        implement_vertex!(Vertex, position);
 
         glium::VertexBuffer::new(&display, 
             vec![
@@ -37,15 +35,16 @@ fn main() {
 
     // building the instances buffer
     let per_instance = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Attr {
             world_position: [f32; 2],
         }
 
+        implement_vertex!(Attr, world_position);
+
         let mut data = Vec::new();
-        for x in (0 .. 104) {
-            for y in (0 .. 82) {
+        for x in (0u32 .. 104) {
+            for y in (0u32 .. 82) {
                 data.push(Attr {
                     world_position: [((x as f32) / 50.0) - 1.0, ((y as f32) / 40.0) - 1.0],
                 });
@@ -56,7 +55,7 @@ fn main() {
     };
 
     let index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::TrianglesList(vec![0u16, 1, 2]));
+        glium::index::TrianglesList(vec![0u16, 1, 2]));
 
     let program = glium::Program::from_source(&display,
         "
@@ -80,11 +79,7 @@ fn main() {
         .unwrap();
     
     // the main loop
-    // each cycle will draw once
-    'main: loop {
-        use std::io::timer;
-        use std::time::Duration;
-
+    support::start_loop(|| {
         // drawing a frame
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 0.0, 0.0);
@@ -92,15 +87,14 @@ fn main() {
                     &std::default::Default::default()).unwrap();
         target.finish();
 
-        // sleeping for some time in order not to use up too much CPU
-        timer::sleep(Duration::milliseconds(17));
-
         // polling and handling the events received by the window
-        for event in display.poll_events().into_iter() {
+        for event in display.poll_events() {
             match event {
-                glutin::Event::Closed => break 'main,
+                glutin::Event::Closed => return support::Action::Stop,
                 _ => ()
             }
         }
-    }
+
+        support::Action::Continue
+    });
 }

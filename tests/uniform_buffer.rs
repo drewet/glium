@@ -1,9 +1,3 @@
-#![feature(plugin)]
-#![feature(unboxed_closures)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
 #[macro_use]
 extern crate glium;
@@ -213,6 +207,7 @@ fn block_wrong_type() {
     display.assert_no_error();
 }
 
+#[test]
 fn persistent_uniform_buffer_write() {
     let display = support::build_display();
 
@@ -277,7 +272,7 @@ fn persistent_block_race_condition() {
     let texture = support::build_renderable_texture(&display);
     let mut target = texture.as_surface();
     target.clear_color(0.0, 0.0, 0.0, 0.0);
-    for _ in range(0, 1000) {
+    for _ in (0 .. 1000) {
         {
             let mut mapping = buffer.map();
             (*mapping).0 = std::rand::random();
@@ -311,6 +306,18 @@ fn persistent_block_race_condition() {
             assert_eq!(pixel, &(1.0, 1.0, 1.0));
         }
     }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn empty_uniform_buffer() {
+    let display = support::build_display();
+
+    let _ = match glium::uniforms::UniformBuffer::new_if_supported(&display, ()) {
+        None => return,
+        Some(b) => b
+    };
 
     display.assert_no_error();
 }

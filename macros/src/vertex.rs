@@ -9,7 +9,7 @@ use syntax::ptr::P;
 /// Expand #[vertex_format]
 pub fn expand(ecx: &mut base::ExtCtxt, span: codemap::Span,
               meta_item: &ast::MetaItem, item: &ast::Item,
-              mut push: Box<FnMut(P<ast::Item>)>)
+              push: &mut FnMut(P<ast::Item>))
 {
     generic::TraitDef {
         span: span,
@@ -21,6 +21,7 @@ pub fn expand(ecx: &mut base::ExtCtxt, span: codemap::Span,
             global: true,
         },
         additional_bounds: Vec::new(),
+        associated_types: Vec::new(),
         generics: generic::ty::LifetimeBounds::empty(),
         methods: vec![
             generic::MethodDef {
@@ -57,8 +58,7 @@ fn body(ecx: &mut base::ExtCtxt, span: codemap::Span,
             let content = definition.fields.iter().zip(fields.iter())
                 .map(|(def, &(ident, _))| {
                     let ref elem_type = def.node.ty;
-                    let ident_str = token::get_ident(ident);
-                    let ident_str = ident_str.get();
+                    let ident_str = &*token::get_ident(ident);
 
                     quote_expr!(ecx, {
                         let offset = {

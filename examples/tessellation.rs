@@ -1,14 +1,11 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
 
 #[macro_use]
 extern crate glium;
 
 use glium::Surface;
+
+mod support;
 
 fn main() {
     use glium::DisplayBuild;
@@ -20,11 +17,12 @@ fn main() {
 
     // building the vertex buffer, which contains all the vertices that we will draw
     let vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 2],
         }
+
+        implement_vertex!(Vertex, position);
 
         glium::VertexBuffer::new(&display, 
             vec![
@@ -37,7 +35,7 @@ fn main() {
 
     // building the index buffer
     let index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::Patches(vec![0u16, 1, 2], 3));
+        glium::index::Patches(vec![0u16, 1, 2], 3));
 
     // compiling shaders and linking them together
     let program = glium::Program::new(&display,
@@ -130,11 +128,7 @@ fn main() {
     println!("The current tessellation level is {} ; use the Up and Down keys to change it", tess_level);
     
     // the main loop
-    // each cycle will draw once
-    'main: loop {
-        use std::io::timer;
-        use std::time::Duration;
-
+    support::start_loop(|| {
         // building the uniforms
         let uniforms = uniform! {
             matrix: [
@@ -152,13 +146,10 @@ fn main() {
         target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &std::default::Default::default()).unwrap();
         target.finish();
 
-        // sleeping for some time in order not to use up too much CPU
-        timer::sleep(Duration::milliseconds(17));
-
         // polling and handling the events received by the window
-        for event in display.poll_events().into_iter() {
+        for event in display.poll_events() {
             match event {
-                glutin::Event::Closed => break 'main,
+                glutin::Event::Closed => return support::Action::Stop,
                 glutin::Event::KeyboardInput(glutin::ElementState::Pressed, _, Some(glutin::VirtualKeyCode::Up)) => {
                     tess_level += 1;
                     println!("New tessellation level: {}", tess_level);
@@ -172,5 +163,7 @@ fn main() {
                 _ => ()
             }
         }
-    }
+
+        support::Action::Continue
+    });
 }

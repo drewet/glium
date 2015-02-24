@@ -3,25 +3,28 @@ use buffer::{self, Buffer};
 use program;
 use uniforms::{IntoUniformValue, UniformValue, UniformBlock};
 
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use GlObject;
 use gl;
 use context;
+use version::Api;
 
 /// Buffer that contains a uniform block.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct UniformBuffer<T> {
     buffer: TypelessUniformBuffer,
+    marker: PhantomData<T>,
 }
 
 /// Same as `UniformBuffer` but doesn't contain any information about the type.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct TypelessUniformBuffer {
     buffer: Buffer,
 }
 
-impl<T> UniformBuffer<T> where T: Copy + Send {
+impl<T> UniformBuffer<T> where T: Copy + Send + 'static {
     /// Uploads data in the uniforms buffer.
     ///
     /// ## Features
@@ -35,7 +38,8 @@ impl<T> UniformBuffer<T> where T: Copy + Send {
         UniformBuffer {
             buffer: TypelessUniformBuffer {
                 buffer: buffer,
-            }
+            },
+            marker: PhantomData,
         }
     }
 
@@ -62,13 +66,13 @@ impl<T> UniformBuffer<T> where T: Copy + Send {
 
     /// Implementation of `new`.
     fn new_impl(display: &Display, data: T, persistent: bool) -> Option<UniformBuffer<T>> {
-        if display.context.context.get_version() < &context::GlVersion(3, 1) &&
+        if display.context.context.get_version() < &context::GlVersion(Api::Gl, 3, 1) &&
            !display.context.context.get_extensions().gl_arb_uniform_buffer_object
         {
             None
 
         } else {
-            if persistent && display.context.context.get_version() < &context::GlVersion(4, 4) &&
+            if persistent && display.context.context.get_version() < &context::GlVersion(Api::Gl, 4, 4) &&
                !display.context.context.get_extensions().gl_arb_buffer_storage
             {
                 return None;
@@ -80,7 +84,8 @@ impl<T> UniformBuffer<T> where T: Copy + Send {
             Some(UniformBuffer {
                 buffer: TypelessUniformBuffer {
                     buffer: buffer,
-                }
+                },
+                marker: PhantomData,
             })
         }
     }
@@ -119,12 +124,14 @@ impl<T> UniformBuffer<T> where T: Copy + Send {
 }
 
 impl<T> GlObject for UniformBuffer<T> {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
 }
 
 impl GlObject for TypelessUniformBuffer {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }

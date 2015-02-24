@@ -1,10 +1,5 @@
-#![feature(plugin)]
-#![feature(unboxed_closures)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
+#[macro_use]
 extern crate glium;
 
 use std::default::Default;
@@ -16,7 +11,7 @@ mod support;
 fn magnify_nearest_filtering() {
     // ignoring test on travis
     // TODO: find out why they are failing
-    if ::std::os::getenv("TRAVIS").is_some() {
+    if ::std::env::var("TRAVIS").is_ok() {
         return;
     }
     
@@ -47,11 +42,10 @@ fn magnify_nearest_filtering() {
     let texture_data = vec![vec![(0u8, 0, 0), (255, 255, 255)]];
     let texture = glium::texture::Texture2d::new(&display, texture_data);
 
-    let uniforms = glium::uniforms::UniformsStorage::new("texture",
-        glium::uniforms::Sampler(&texture, glium::uniforms::SamplerBehavior {
-            magnify_filter: glium::uniforms::MagnifySamplerFilter::Nearest,
-            .. Default::default()
-        }));
+    let uniforms = uniform! {
+        texture: glium::uniforms::Sampler::new(&texture)
+                        .magnify_filter(glium::uniforms::MagnifySamplerFilter::Nearest)
+    };
 
     let output = support::build_renderable_texture(&display);
     output.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);

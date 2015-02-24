@@ -3,11 +3,12 @@ use std::sync::mpsc::channel;
 use std::mem;
 
 use program::Program;
-use index_buffer::IndicesSource;
+use index::IndicesSource;
 use vertex::{VerticesSource, AttributeType};
 use {DisplayImpl, GlObject};
 
 use {libc, gl, context};
+use version::Api;
 
 /// Stores informations about how to bind a vertex buffer, an index buffer and a program.
 pub struct VertexArrayObject {
@@ -28,7 +29,7 @@ impl VertexArrayObject {
         // checking the attributes types
         for vertex_buffer in vertex_buffers.iter() {
             let bindings = match vertex_buffer {
-                &&VerticesSource::VertexBuffer(ref vertex_buffer, _) => {
+                &&VerticesSource::VertexBuffer(ref vertex_buffer, _, _, _) => {
                     vertex_buffer.get_bindings()
                 },
                 &&VerticesSource::PerInstanceBuffer(ref buffer, _) => {
@@ -53,7 +54,7 @@ impl VertexArrayObject {
             let mut found = false;
             for vertex_buffer in vertex_buffers.iter() {
                 let bindings = match vertex_buffer {
-                    &&VerticesSource::VertexBuffer(ref vertex_buffer, _) => {
+                    &&VerticesSource::VertexBuffer(ref vertex_buffer, _, _, _) => {
                         vertex_buffer.get_bindings()
                     },
                     &&VerticesSource::PerInstanceBuffer(ref buffer, _) => {
@@ -76,7 +77,7 @@ impl VertexArrayObject {
         // building the values that will be sent to the other thread
         let data = vertex_buffers.iter().map(|vertex_buffer| {
             match vertex_buffer {
-                &&VerticesSource::VertexBuffer(ref vertex_buffer, _) => {
+                &&VerticesSource::VertexBuffer(ref vertex_buffer, _, _, _) => {
                     (
                         GlObject::get_id(*vertex_buffer),
                         vertex_buffer.get_bindings().clone(),
@@ -97,11 +98,11 @@ impl VertexArrayObject {
 
         let (tx, rx) = channel();
 
-        display.context.exec(move |: ctxt| {
+        display.context.exec(move |ctxt| {
             unsafe {
                 // building the VAO
                 let id: gl::types::GLuint = mem::uninitialized();
-                if ctxt.version >= &context::GlVersion(3, 0) ||
+                if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) ||
                     ctxt.extensions.gl_arb_vertex_array_object
                 {
                     ctxt.gl.GenVertexArrays(1, mem::transmute(&id));
@@ -114,7 +115,7 @@ impl VertexArrayObject {
 
                 // we don't use DSA as we're going to make multiple calls for this VAO
                 // and we're likely going to use the VAO right after it's been created
-                if ctxt.version >= &context::GlVersion(3, 0) ||
+                if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) ||
                     ctxt.extensions.gl_arb_vertex_array_object
                 {
                     ctxt.gl.BindVertexArray(id);
@@ -147,10 +148,18 @@ impl VertexArrayObject {
                         };
 
                         if attribute.location != -1 {
-                            match data_type {
+                            match attribute.ty {
                                 gl::BYTE | gl::UNSIGNED_BYTE | gl::SHORT | gl::UNSIGNED_SHORT |
                                 gl::INT | gl::UNSIGNED_INT =>
                                     ctxt.gl.VertexAttribIPointer(attribute.location as u32,
+                                        elements_count as gl::types::GLint, data_type,
+                                        vb_elementssize as i32, offset as *const libc::c_void),
+
+                                gl::DOUBLE | gl::DOUBLE_VEC2 | gl::DOUBLE_VEC3 | gl::DOUBLE_VEC4 |
+                                gl::DOUBLE_MAT2 | gl::DOUBLE_MAT3 | gl::DOUBLE_MAT4 |
+                                gl::DOUBLE_MAT2x3 | gl::DOUBLE_MAT2x4 | gl::DOUBLE_MAT3x2 |
+                                gl::DOUBLE_MAT3x4 | gl::DOUBLE_MAT4x2 | gl::DOUBLE_MAT4x3 =>
+                                    ctxt.gl.VertexAttribLPointer(attribute.location as u32,
                                         elements_count as gl::types::GLint, data_type,
                                         vb_elementssize as i32, offset as *const libc::c_void),
 
@@ -180,11 +189,11 @@ impl VertexArrayObject {
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
         let id = self.id.clone();
-        self.display.context.exec(move |: ctxt| {
+        self.display.context.exec(move |ctxt| {
             unsafe {
                 // unbinding
                 if ctxt.state.vertex_array == id {
-                    if ctxt.version >= &context::GlVersion(3, 0) ||
+                    if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) ||
                         ctxt.extensions.gl_arb_vertex_array_object
                     {
                         ctxt.gl.BindVertexArray(0);
@@ -198,7 +207,7 @@ impl Drop for VertexArrayObject {
                 }
 
                 // deleting
-                if ctxt.version >= &context::GlVersion(3, 0) ||
+                if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) ||
                     ctxt.extensions.gl_arb_vertex_array_object
                 {
                     ctxt.gl.DeleteVertexArrays(1, [ id ].as_ptr());
@@ -213,6 +222,7 @@ impl Drop for VertexArrayObject {
 }
 
 impl GlObject for VertexArrayObject {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.id
     }
@@ -222,11 +232,12 @@ impl GlObject for VertexArrayObject {
 /// passed as parameters. Creates a new VAO if no existing one matches these.
 pub fn get_vertex_array_object<I>(display: &Arc<DisplayImpl>, vertex_buffers: &[&VerticesSource],
                                   indices: &IndicesSource<I>, program: &Program)
-                                  -> gl::types::GLuint where I: ::index_buffer::Index
+                                  -> gl::types::GLuint where I: ::index::Index
 {
     let ib_id = match indices {
         &IndicesSource::Buffer { .. } => 0,
-        &IndicesSource::IndexBuffer { ref buffer, .. } => buffer.get_id()
+        &IndicesSource::IndexBuffer { ref buffer, .. } => buffer.get_id(),
+        &IndicesSource::NoIndices { .. } => 0,
     };
 
     let buffers_list = {
@@ -236,7 +247,7 @@ pub fn get_vertex_array_object<I>(display: &Arc<DisplayImpl>, vertex_buffers: &[
         }
         for vertex_buffer in vertex_buffers.iter() {
             buffers_list.push(match vertex_buffer {
-                &&VerticesSource::VertexBuffer(ref vb, _) => vb.get_id(),
+                &&VerticesSource::VertexBuffer(ref vb, _, _, _) => vb.get_id(),
                 &&VerticesSource::PerInstanceBuffer(ref buf, _) => buf.get_id(),
             });
         }
@@ -288,6 +299,28 @@ fn vertex_binding_type_to_gl(ty: AttributeType) -> (gl::types::GLenum, gl::types
         AttributeType::F32F32 => (gl::FLOAT, 2),
         AttributeType::F32F32F32 => (gl::FLOAT, 3),
         AttributeType::F32F32F32F32 => (gl::FLOAT, 4),
+        AttributeType::F32x2x2 => (gl::FLOAT_MAT2, 1),
+        AttributeType::F32x2x3 => (gl::FLOAT_MAT2x3, 1),
+        AttributeType::F32x2x4 => (gl::FLOAT_MAT2x4, 1),
+        AttributeType::F32x3x2 => (gl::FLOAT_MAT3x2, 1),
+        AttributeType::F32x3x3 => (gl::FLOAT_MAT3, 1),
+        AttributeType::F32x3x4 => (gl::FLOAT_MAT3x4, 1),
+        AttributeType::F32x4x2 => (gl::FLOAT_MAT4x2, 1),
+        AttributeType::F32x4x3 => (gl::FLOAT_MAT4x3, 1),
+        AttributeType::F32x4x4 => (gl::FLOAT_MAT4, 1),
+        AttributeType::F64 => (gl::DOUBLE, 1),
+        AttributeType::F64F64 => (gl::DOUBLE, 2),
+        AttributeType::F64F64F64 => (gl::DOUBLE, 3),
+        AttributeType::F64F64F64F64 => (gl::DOUBLE, 4),
+        AttributeType::F64x2x2 => (gl::DOUBLE_MAT2, 1),
+        AttributeType::F64x2x3 => (gl::DOUBLE_MAT2x3, 1),
+        AttributeType::F64x2x4 => (gl::DOUBLE_MAT2x4, 1),
+        AttributeType::F64x3x2 => (gl::DOUBLE_MAT3x2, 1),
+        AttributeType::F64x3x3 => (gl::DOUBLE_MAT3, 1),
+        AttributeType::F64x3x4 => (gl::DOUBLE_MAT3x4, 1),
+        AttributeType::F64x4x2 => (gl::DOUBLE_MAT4x2, 1),
+        AttributeType::F64x4x3 => (gl::DOUBLE_MAT4x3, 1),
+        AttributeType::F64x4x4 => (gl::DOUBLE_MAT4, 1),
     }
 }
 
@@ -299,18 +332,46 @@ fn vertex_type_matches(ty: AttributeType, gl_ty: gl::types::GLenum,
         (AttributeType::I8I8, gl::BYTE, 2) => true,
         (AttributeType::I8I8I8, gl::BYTE, 3) => true,
         (AttributeType::I8I8I8I8, gl::BYTE, 4) => true,
+        (AttributeType::I8, gl::FLOAT, 1) => true,
+        (AttributeType::I8I8, gl::FLOAT_VEC2, 1) => true,
+        (AttributeType::I8I8, gl::FLOAT, 2) => true,
+        (AttributeType::I8I8I8, gl::FLOAT, 3) => true,
+        (AttributeType::I8I8I8, gl::FLOAT_VEC3, 1) => true,
+        (AttributeType::I8I8I8I8, gl::FLOAT, 4) => true,
+        (AttributeType::I8I8I8I8, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::U8, gl::UNSIGNED_BYTE, 1) => true,
         (AttributeType::U8U8, gl::UNSIGNED_BYTE, 2) => true,
         (AttributeType::U8U8U8, gl::UNSIGNED_BYTE, 3) => true,
         (AttributeType::U8U8U8U8, gl::UNSIGNED_BYTE, 4) => true,
+        (AttributeType::U8, gl::FLOAT, 1) => true,
+        (AttributeType::U8U8, gl::FLOAT_VEC2, 1) => true,
+        (AttributeType::U8U8, gl::FLOAT, 2) => true,
+        (AttributeType::U8U8U8, gl::FLOAT, 3) => true,
+        (AttributeType::U8U8U8, gl::FLOAT_VEC3, 1) => true,
+        (AttributeType::U8U8U8U8, gl::FLOAT, 4) => true,
+        (AttributeType::U8U8U8U8, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::I16, gl::SHORT, 1) => true,
         (AttributeType::I16I16, gl::SHORT, 2) => true,
         (AttributeType::I16I16I16, gl::SHORT, 3) => true,
         (AttributeType::I16I16I16I16, gl::SHORT, 4) => true,
+        (AttributeType::I16, gl::FLOAT, 1) => true,
+        (AttributeType::I16I16, gl::FLOAT_VEC2, 1) => true,
+        (AttributeType::I16I16, gl::FLOAT, 2) => true,
+        (AttributeType::I16I16I16, gl::FLOAT, 3) => true,
+        (AttributeType::I16I16I16, gl::FLOAT_VEC3, 1) => true,
+        (AttributeType::I16I16I16I16, gl::FLOAT, 4) => true,
+        (AttributeType::I16I16I16I16, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::U16, gl::UNSIGNED_SHORT, 1) => true,
         (AttributeType::U16U16, gl::UNSIGNED_SHORT, 2) => true,
         (AttributeType::U16U16U16, gl::UNSIGNED_SHORT, 3) => true,
         (AttributeType::U16U16U16U16, gl::UNSIGNED_SHORT, 4) => true,
+        (AttributeType::U16, gl::FLOAT, 1) => true,
+        (AttributeType::U16U16, gl::FLOAT_VEC2, 1) => true,
+        (AttributeType::U16U16, gl::FLOAT, 2) => true,
+        (AttributeType::U16U16U16, gl::FLOAT, 3) => true,
+        (AttributeType::U16U16U16, gl::FLOAT_VEC3, 1) => true,
+        (AttributeType::U16U16U16U16, gl::FLOAT, 4) => true,
+        (AttributeType::U16U16U16U16, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::I32, gl::INT, 1) => true,
         (AttributeType::I32I32, gl::INT, 2) => true,
         (AttributeType::I32I32, gl::INT_VEC2, 1) => true,
@@ -319,6 +380,13 @@ fn vertex_type_matches(ty: AttributeType, gl_ty: gl::types::GLenum,
         (AttributeType::I32I32I32I32, gl::INT, 4) => true,
         (AttributeType::I32I32I32I32, gl::INT_VEC4, 1) => true,
         (AttributeType::I32I32I32I32, gl::INT_VEC2, 2) => true,
+        (AttributeType::I32, gl::FLOAT, 1) => true,
+        (AttributeType::I32I32, gl::FLOAT_VEC2, 1) => true,
+        (AttributeType::I32I32, gl::FLOAT, 2) => true,
+        (AttributeType::I32I32I32, gl::FLOAT, 3) => true,
+        (AttributeType::I32I32I32, gl::FLOAT_VEC3, 1) => true,
+        (AttributeType::I32I32I32I32, gl::FLOAT, 4) => true,
+        (AttributeType::I32I32I32I32, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::U32, gl::UNSIGNED_INT, 1) => true,
         (AttributeType::U32U32, gl::UNSIGNED_INT, 2) => true,
         (AttributeType::U32U32, gl::UNSIGNED_INT_VEC2, 1) => true,
@@ -327,6 +395,13 @@ fn vertex_type_matches(ty: AttributeType, gl_ty: gl::types::GLenum,
         (AttributeType::U32U32U32U32, gl::UNSIGNED_INT, 4) => true,
         (AttributeType::U32U32U32U32, gl::UNSIGNED_INT_VEC4, 1) => true,
         (AttributeType::U32U32U32U32, gl::UNSIGNED_INT_VEC2, 2) => true,
+        (AttributeType::U32, gl::FLOAT, 1) => true,
+        (AttributeType::U32U32, gl::FLOAT_VEC2, 1) => true,
+        (AttributeType::U32U32, gl::FLOAT, 2) => true,
+        (AttributeType::U32U32U32, gl::FLOAT, 3) => true,
+        (AttributeType::U32U32U32, gl::FLOAT_VEC3, 1) => true,
+        (AttributeType::U32U32U32U32, gl::FLOAT, 4) => true,
+        (AttributeType::U32U32U32U32, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::F32, gl::FLOAT, 1) => true,
         (AttributeType::F32F32, gl::FLOAT, 2) => true,
         (AttributeType::F32F32, gl::FLOAT_VEC2, 1) => true,
@@ -335,6 +410,36 @@ fn vertex_type_matches(ty: AttributeType, gl_ty: gl::types::GLenum,
         (AttributeType::F32F32F32F32, gl::FLOAT, 4) => true,
         (AttributeType::F32F32F32F32, gl::FLOAT_VEC4, 1) => true,
         (AttributeType::F32F32F32F32, gl::FLOAT_VEC2, 2) => true,
+        (AttributeType::F32x2x2, gl::FLOAT_MAT2, 1) => true,
+        (AttributeType::F32x2x2, gl::FLOAT_VEC2, 2) => true,
+        (AttributeType::F32x2x3, gl::FLOAT_MAT2x3, 1) => true,
+        (AttributeType::F32x2x4, gl::FLOAT_MAT2x4, 1) => true,
+        (AttributeType::F32x3x2, gl::FLOAT_MAT3x2, 1) => true,
+        (AttributeType::F32x3x3, gl::FLOAT_MAT3, 1) => true,
+        (AttributeType::F32x3x4, gl::FLOAT_MAT3x4, 1) => true,
+        (AttributeType::F32x4x2, gl::FLOAT_MAT4x2, 1) => true,
+        (AttributeType::F32x4x3, gl::FLOAT_MAT4x3, 1) => true,
+        (AttributeType::F32x4x4, gl::FLOAT_MAT4, 1) => true,
+        (AttributeType::F32x4x4, gl::FLOAT_VEC4, 4) => true,
+        (AttributeType::F64, gl::DOUBLE, 1) => true,
+        (AttributeType::F64F64, gl::DOUBLE, 2) => true,
+        (AttributeType::F64F64, gl::DOUBLE_VEC2, 1) => true,
+        (AttributeType::F64F64F64, gl::DOUBLE, 3) => true,
+        (AttributeType::F64F64F64, gl::DOUBLE_VEC3, 1) => true,
+        (AttributeType::F64F64F64F64, gl::DOUBLE, 4) => true,
+        (AttributeType::F64F64F64F64, gl::DOUBLE_VEC4, 1) => true,
+        (AttributeType::F64F64F64F64, gl::DOUBLE_VEC2, 2) => true,
+        (AttributeType::F64x2x2, gl::DOUBLE_MAT2, 1) => true,
+        (AttributeType::F64x2x2, gl::DOUBLE_VEC2, 2) => true,
+        (AttributeType::F64x2x3, gl::DOUBLE_MAT2x3, 1) => true,
+        (AttributeType::F64x2x4, gl::DOUBLE_MAT2x4, 1) => true,
+        (AttributeType::F64x3x2, gl::DOUBLE_MAT3x2, 1) => true,
+        (AttributeType::F64x3x3, gl::DOUBLE_MAT3, 1) => true,
+        (AttributeType::F64x3x4, gl::DOUBLE_MAT3x4, 1) => true,
+        (AttributeType::F64x4x2, gl::DOUBLE_MAT4x2, 1) => true,
+        (AttributeType::F64x4x3, gl::DOUBLE_MAT4x3, 1) => true,
+        (AttributeType::F64x4x4, gl::DOUBLE_MAT4, 1) => true,
+        (AttributeType::F64x4x4, gl::DOUBLE_VEC4, 4) => true,
         _ => false,
     }
 }

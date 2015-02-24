@@ -1,14 +1,11 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
+
+#[macro_use]
 extern crate glium;
 
 use glium::Surface;
 
-mod teapot_model;
+mod support;
 
 fn main() {
     use glium::DisplayBuild;
@@ -19,12 +16,7 @@ fn main() {
         .unwrap();
 
     // building the vertex and index buffers
-    let (vertex_buffer, index_buffer) = match teapot_model::build_model() {
-        (vertices, indices) => (
-            glium::VertexBuffer::new(&display, vertices),
-            glium::IndexBuffer::new(&display, indices)
-        )
-    };
+    let vertex_buffer = support::load_wavefront(&display, include_bytes!("support/teapot.obj"));
 
     // the program
     let program = glium::Program::from_source(&display,
@@ -55,7 +47,7 @@ fn main() {
             const vec3 LIGHT = vec3(-0.2, 0.8, 0.1);
 
             void main() {
-                float lum = max(dot(v_normal, normalize(LIGHT)), 0.0);
+                float lum = max(dot(normalize(v_normal), normalize(LIGHT)), 0.0);
                 vec3 color = (0.3 + 0.7 * lum) * vec3(1.0, 1.0, 1.0);
                 gl_FragColor = vec4(color, 1.0);
             }
@@ -64,26 +56,15 @@ fn main() {
         // geometry shader
         None)
         .unwrap();
-
-    // creating the uniforms structure
-    #[uniforms]
-    #[derive(Copy)]
-    struct Uniforms {
-        matrix: [[f32; 4]; 4],
-    }
     
     // the main loop
-    // each cycle will draw once
-    'main: loop {
-        use std::io::timer;
-        use std::time::Duration;
-
+    support::start_loop(|| {
         // building the uniforms
-        let uniforms = Uniforms {
+        let uniforms = uniform! {
             matrix: [
-                [0.05, 0.0, 0.0, 0.0],
-                [0.0, 0.05, 0.0, 0.0],
-                [0.0, 0.0, 0.05, 0.0],
+                [0.005, 0.0, 0.0, 0.0],
+                [0.0, 0.005, 0.0, 0.0],
+                [0.0, 0.0, 0.005, 0.0],
                 [0.0, 0.0, 0.0, 1.0f32]
             ]
         };
@@ -97,18 +78,19 @@ fn main() {
         // drawing a frame
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 0.0, 0.0);
-        target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &params).unwrap();
+        target.draw(&vertex_buffer,
+                    &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
+                    &program, &uniforms, &params).unwrap();
         target.finish();
 
-        // sleeping for some time in order not to use up too much CPU
-        timer::sleep(Duration::milliseconds(17));
-
         // polling and handling the events received by the window
-        for event in display.poll_events().into_iter() {
+        for event in display.poll_events() {
             match event {
-                glutin::Event::Closed => break 'main,
+                glutin::Event::Closed => return support::Action::Stop,
                 _ => ()
             }
         }
-    }
+
+        support::Action::Continue
+    });
 }

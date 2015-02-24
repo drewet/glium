@@ -1,4 +1,5 @@
 use context::{GlVersion, ExtensionsList};
+use version::Api;
 use gl;
 
 /// Represents the capabilities of the context.
@@ -33,26 +34,26 @@ pub struct Capabilities {
 }
 
 /// Loads the capabilities.
-pub fn get_capabilities(gl: &gl::Gl, version: &GlVersion, extensions: &ExtensionsList,
-                        gl_es: bool) -> Capabilities
+pub fn get_capabilities(gl: &gl::Gl, version: &GlVersion, extensions: &ExtensionsList)
+                        -> Capabilities
 {
     use std::mem;
 
     Capabilities {
         stereo: unsafe {
-            if gl_es {
-                false
-            } else {
+            if version >= &GlVersion(Api::Gl, 1, 0) {
                 let mut val: gl::types::GLboolean = mem::uninitialized();
                 gl.GetBooleanv(gl::STEREO, &mut val);
                 val != 0
+            } else {
+                false
             }
         },
 
         depth_bits: unsafe {
             let mut value = mem::uninitialized();
 
-            if version >= &GlVersion(3, 0) {
+            if version >= &GlVersion(Api::Gl, 3, 0) {
                 gl.GetFramebufferAttachmentParameteriv(gl::FRAMEBUFFER, gl::DEPTH,
                                                        gl::FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE,
                                                        &mut value);
@@ -69,7 +70,7 @@ pub fn get_capabilities(gl: &gl::Gl, version: &GlVersion, extensions: &Extension
         stencil_bits: unsafe {
             let mut value = mem::uninitialized();
 
-            if version >= &GlVersion(3, 0) {
+            if version >= &GlVersion(Api::Gl, 3, 0) {
                 gl.GetFramebufferAttachmentParameteriv(gl::FRAMEBUFFER, gl::STENCIL,
                                                        gl::FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE,
                                                        &mut value);
@@ -112,7 +113,7 @@ pub fn get_capabilities(gl: &gl::Gl, version: &GlVersion, extensions: &Extension
             val
         },
 
-        max_patch_vertices: if version < &GlVersion(4, 0) && !extensions.gl_arb_tessellation_shader {
+        max_patch_vertices: if version < &GlVersion(Api::Gl, 4, 0) && !extensions.gl_arb_tessellation_shader {
             None
 
         } else {

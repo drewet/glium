@@ -1,19 +1,18 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
+
+#[macro_use]
 extern crate glium;
 
 #[cfg(feature = "image")]
 extern crate image;
 
 #[cfg(feature = "image")]
-use std::io::BufReader;
+use std::old_io::BufReader;
 
 #[cfg(feature = "image")]
 use glium::{DisplayBuild, Surface};
+
+mod support;
 
 #[cfg(not(feature = "image"))]
 fn main() {
@@ -35,12 +34,13 @@ fn main() {
 
     // building the vertex buffer, which contains all the vertices that we will draw
     let vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 2],
             tex_coords: [f32; 2],
         }
+
+        implement_vertex!(Vertex, position, tex_coords);
 
         glium::VertexBuffer::new(&display, 
             vec![
@@ -54,7 +54,7 @@ fn main() {
 
     // building the index buffer
     let index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::TriangleStrip(vec![1 as u16, 2, 0, 3]));
+        glium::index::TriangleStrip(vec![1 as u16, 2, 0, 3]));
 
     // compiling shaders and linking them together
     let program = glium::Program::from_source(&display, r"
@@ -80,29 +80,18 @@ fn main() {
             gl_FragColor = texture2D(texture, v_tex_coords);
         }
     ", None).unwrap();
-
-    // creating the uniforms structure
-    #[uniforms]
-    struct Uniforms<'a> {
-        matrix: [[f32; 4]; 4],
-        texture: &'a glium::texture::CompressedTexture2d,
-    }
     
     // the main loop
-    // each cycle will draw once
-    'main: loop {
-        use std::io::timer;
-        use std::time::Duration;
-
+    support::start_loop(|| {
         // building the uniforms
-        let uniforms = Uniforms {
+        let uniforms = uniform! {
             matrix: [
                 [1.0, 0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0, 0.0],
                 [0.0, 0.0, 1.0, 0.0],
                 [0.0, 0.0, 0.0, 1.0f32]
             ],
-            texture: &opengl_texture,
+            texture: &opengl_texture
         };
 
         // drawing a frame
@@ -111,15 +100,14 @@ fn main() {
         target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &std::default::Default::default()).unwrap();
         target.finish();
 
-        // sleeping for some time in order not to use up too much CPU
-        timer::sleep(Duration::milliseconds(17));
-
         // polling and handling the events received by the window
-        for event in display.poll_events().into_iter() {
+        for event in display.poll_events() {
             match event {
-                glutin::Event::Closed => break 'main,
+                glutin::Event::Closed => return support::Action::Stop,
                 _ => ()
             }
         }
-    }
+
+        support::Action::Continue
+    });
 }

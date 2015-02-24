@@ -6,7 +6,7 @@ use ToGlEnum;
 ///
 /// These are all the possible formats of data when uploading to a texture.
 #[allow(missing_docs)]
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClientFormat {
     U8,
     U8U8,
@@ -93,195 +93,46 @@ impl ClientFormat {
         }
     }
 
-    /// Returns a (format, type) tuple.
-    #[doc(hidden)]      // TODO: shouldn't be pub
-    pub fn to_gl_enum(&self) -> (gl::types::GLenum, gl::types::GLenum) {
+    /// Returns the number of components of this client format.
+    pub fn get_num_components(&self) -> u8 {
         match *self {
-            ClientFormat::U8 => (gl::RED, gl::UNSIGNED_BYTE),
-            ClientFormat::U8U8 => (gl::RG, gl::UNSIGNED_BYTE),
-            ClientFormat::U8U8U8 => (gl::RGB, gl::UNSIGNED_BYTE),
-            ClientFormat::U8U8U8U8 => (gl::RGBA, gl::UNSIGNED_BYTE),
-            ClientFormat::I8 => (gl::RED, gl::BYTE),
-            ClientFormat::I8I8 => (gl::RG, gl::BYTE),
-            ClientFormat::I8I8I8 => (gl::RGB, gl::BYTE),
-            ClientFormat::I8I8I8I8 => (gl::RGBA, gl::BYTE),
-            ClientFormat::U16 => (gl::RED, gl::UNSIGNED_SHORT),
-            ClientFormat::U16U16 => (gl::RG, gl::UNSIGNED_SHORT),
-            ClientFormat::U16U16U16 => (gl::RGB, gl::UNSIGNED_SHORT),
-            ClientFormat::U16U16U16U16 => (gl::RGBA, gl::UNSIGNED_SHORT),
-            ClientFormat::I16 => (gl::RED, gl::SHORT),
-            ClientFormat::I16I16 => (gl::RG, gl::SHORT),
-            ClientFormat::I16I16I16 => (gl::RGB, gl::SHORT),
-            ClientFormat::I16I16I16I16 => (gl::RGBA, gl::SHORT),
-            ClientFormat::U32 => (gl::RED, gl::UNSIGNED_INT),
-            ClientFormat::U32U32 => (gl::RG, gl::UNSIGNED_INT),
-            ClientFormat::U32U32U32 => (gl::RGB, gl::UNSIGNED_INT),
-            ClientFormat::U32U32U32U32 => (gl::RGBA, gl::UNSIGNED_INT),
-            ClientFormat::I32 => (gl::RED, gl::INT),
-            ClientFormat::I32I32 => (gl::RG, gl::INT),
-            ClientFormat::I32I32I32 => (gl::RGB, gl::INT),
-            ClientFormat::I32I32I32I32 => (gl::RGBA, gl::INT),
-            ClientFormat::U3U3U2 => (gl::RGB, gl::UNSIGNED_BYTE_3_3_2),
-            ClientFormat::U5U6U5 => (gl::RGB, gl::UNSIGNED_SHORT_5_6_5),
-            ClientFormat::U4U4U4U4 => (gl::RGBA, gl::UNSIGNED_SHORT_4_4_4_4),
-            ClientFormat::U5U5U5U1 => (gl::RGBA, gl::UNSIGNED_SHORT_5_5_5_1),
-            ClientFormat::U10U10U10U2 => (gl::RGBA, gl::UNSIGNED_INT_10_10_10_2),
-            ClientFormat::F16 => (gl::RED, gl::HALF_FLOAT),
-            ClientFormat::F16F16 => (gl::RG, gl::HALF_FLOAT),
-            ClientFormat::F16F16F16 => (gl::RGB, gl::HALF_FLOAT),
-            ClientFormat::F16F16F16F16 => (gl::RGBA, gl::HALF_FLOAT),
-            ClientFormat::F32 => (gl::RED, gl::FLOAT),
-            ClientFormat::F32F32 => (gl::RG, gl::FLOAT),
-            ClientFormat::F32F32F32 => (gl::RGB, gl::FLOAT),
-            ClientFormat::F32F32F32F32 => (gl::RGBA, gl::FLOAT),
-        }
-    }
-
-    /// Returns a (format, type) tuple corresponding to the "signed integer" format, if possible.
-    #[doc(hidden)]      // TODO: shouldn't be pub
-    pub fn to_gl_enum_int(&self) -> Option<(gl::types::GLenum, gl::types::GLenum)> {
-        let (components, format) = self.to_gl_enum();
-
-        let components = match components {
-            gl::RED => gl::RED_INTEGER,
-            gl::RG => gl::RG_INTEGER,
-            gl::RGB => gl::RGB_INTEGER,
-            gl::RGBA => gl::RGBA_INTEGER,
-            _ => return None
-        };
-
-        match format {
-            gl::BYTE => (),
-            gl::SHORT => (),
-            gl::INT => (),
-            _ => return None
-        };
-
-        Some((components, format))
-    }
-
-    /// Returns a (format, type) tuple corresponding to the "unsigned integer" format, if possible.
-    #[doc(hidden)]      // TODO: shouldn't be pub
-    pub fn to_gl_enum_uint(&self) -> Option<(gl::types::GLenum, gl::types::GLenum)> {
-        let (components, format) = self.to_gl_enum();
-
-        let components = match components {
-            gl::RED => gl::RED_INTEGER,
-            gl::RG => gl::RG_INTEGER,
-            gl::RGB => gl::RGB_INTEGER,
-            gl::RGBA => gl::RGBA_INTEGER,
-            _ => return None
-        };
-
-        match format {
-            gl::UNSIGNED_BYTE => (),
-            gl::UNSIGNED_SHORT => (),
-            gl::UNSIGNED_INT => (),
-            gl::UNSIGNED_BYTE_3_3_2 => (),
-            gl::UNSIGNED_SHORT_5_6_5 => (),
-            gl::UNSIGNED_SHORT_4_4_4_4 => (),
-            gl::UNSIGNED_SHORT_5_5_5_1 => (),
-            gl::UNSIGNED_INT_10_10_10_2 => (),
-            _ => return None
-        };
-
-        Some((components, format))
-    }
-
-    /// Returns the default corresponding floating-point-like internal format.
-    pub fn to_float_internal_format(&self) -> Option<UncompressedFloatFormat> {
-        match *self {
-            ClientFormat::U8 => Some(UncompressedFloatFormat::U8),
-            ClientFormat::U8U8 => Some(UncompressedFloatFormat::U8U8),
-            ClientFormat::U8U8U8 => Some(UncompressedFloatFormat::U8U8U8),
-            ClientFormat::U8U8U8U8 => Some(UncompressedFloatFormat::U8U8U8U8),
-            ClientFormat::I8 => Some(UncompressedFloatFormat::I8),
-            ClientFormat::I8I8 => Some(UncompressedFloatFormat::I8I8),
-            ClientFormat::I8I8I8 => Some(UncompressedFloatFormat::I8I8I8),
-            ClientFormat::I8I8I8I8 => Some(UncompressedFloatFormat::I8I8I8I8),
-            ClientFormat::U16 => Some(UncompressedFloatFormat::U16),
-            ClientFormat::U16U16 => Some(UncompressedFloatFormat::U16U16),
-            ClientFormat::U16U16U16 => None,
-            ClientFormat::U16U16U16U16 => Some(UncompressedFloatFormat::U16U16U16U16),
-            ClientFormat::I16 => Some(UncompressedFloatFormat::I16),
-            ClientFormat::I16I16 => Some(UncompressedFloatFormat::I16I16),
-            ClientFormat::I16I16I16 => Some(UncompressedFloatFormat::I16I16I16),
-            ClientFormat::I16I16I16I16 => None,
-            ClientFormat::U32 => None,
-            ClientFormat::U32U32 => None,
-            ClientFormat::U32U32U32 => None,
-            ClientFormat::U32U32U32U32 => None,
-            ClientFormat::I32 => None,
-            ClientFormat::I32I32 => None,
-            ClientFormat::I32I32I32 => None,
-            ClientFormat::I32I32I32I32 => None,
-            ClientFormat::U3U3U2 => None,
-            ClientFormat::U5U6U5 => None,
-            ClientFormat::U4U4U4U4 => Some(UncompressedFloatFormat::U4U4U4U4),
-            ClientFormat::U5U5U5U1 => Some(UncompressedFloatFormat::U5U5U5U1),
-            ClientFormat::U10U10U10U2 => Some(UncompressedFloatFormat::U10U10U10U2),
-            ClientFormat::F16 => Some(UncompressedFloatFormat::F16),
-            ClientFormat::F16F16 => Some(UncompressedFloatFormat::F16F16),
-            ClientFormat::F16F16F16 => Some(UncompressedFloatFormat::F16F16F16),
-            ClientFormat::F16F16F16F16 => Some(UncompressedFloatFormat::F16F16F16F16),
-            ClientFormat::F32 => Some(UncompressedFloatFormat::F32),
-            ClientFormat::F32F32 => Some(UncompressedFloatFormat::F32F32),
-            ClientFormat::F32F32F32 => Some(UncompressedFloatFormat::F32F32F32),
-            ClientFormat::F32F32F32F32 => Some(UncompressedFloatFormat::F32F32F32F32),
-        }
-    }
-
-    /// Returns a GLenum corresponding to the default floating-point-like format corresponding
-    /// to this client format.
-    #[doc(hidden)]      // TODO: shouldn't be pub
-    pub fn to_default_float_format(&self) -> gl::types::GLenum {
-        self.to_float_internal_format()
-            .map(|e| e.to_glenum())
-            .unwrap_or_else(|| self.to_gl_enum().0)
-    }
-
-    /// Returns a GLenum corresponding to the default compressed format corresponding
-    /// to this client format.
-    #[doc(hidden)]      // TODO: shouldn't be pub
-    pub fn to_default_compressed_format(&self) -> gl::types::GLenum {
-        match *self {
-            ClientFormat::U8 => gl::COMPRESSED_RED,
-            ClientFormat::U8U8 => gl::COMPRESSED_RG,
-            ClientFormat::U8U8U8 => gl::COMPRESSED_RGB,
-            ClientFormat::U8U8U8U8 => gl::COMPRESSED_RGBA,
-            ClientFormat::I8 => gl::COMPRESSED_RED,
-            ClientFormat::I8I8 => gl::COMPRESSED_RG,
-            ClientFormat::I8I8I8 => gl::COMPRESSED_RGB,
-            ClientFormat::I8I8I8I8 => gl::COMPRESSED_RGBA,
-            ClientFormat::U16 => gl::COMPRESSED_RED,
-            ClientFormat::U16U16 => gl::COMPRESSED_RG,
-            ClientFormat::U16U16U16 => gl::COMPRESSED_RGB,
-            ClientFormat::U16U16U16U16 => gl::COMPRESSED_RGBA,
-            ClientFormat::I16 => gl::COMPRESSED_RED,
-            ClientFormat::I16I16 => gl::COMPRESSED_RG,
-            ClientFormat::I16I16I16 => gl::COMPRESSED_RGB,
-            ClientFormat::I16I16I16I16 => gl::COMPRESSED_RGBA,
-            ClientFormat::U32 => gl::COMPRESSED_RED,
-            ClientFormat::U32U32 => gl::COMPRESSED_RG,
-            ClientFormat::U32U32U32 => gl::COMPRESSED_RGB,
-            ClientFormat::U32U32U32U32 => gl::COMPRESSED_RGBA,
-            ClientFormat::I32 => gl::COMPRESSED_RED,
-            ClientFormat::I32I32 => gl::COMPRESSED_RG,
-            ClientFormat::I32I32I32 => gl::COMPRESSED_RGB,
-            ClientFormat::I32I32I32I32 => gl::COMPRESSED_RGBA,
-            ClientFormat::U3U3U2 => gl::COMPRESSED_RGB,
-            ClientFormat::U5U6U5 => gl::COMPRESSED_RGB,
-            ClientFormat::U4U4U4U4 => gl::COMPRESSED_RGBA,
-            ClientFormat::U5U5U5U1 => gl::COMPRESSED_RGBA,
-            ClientFormat::U10U10U10U2 => gl::COMPRESSED_RGBA,
-            ClientFormat::F16 => gl::COMPRESSED_RED,
-            ClientFormat::F16F16 => gl::COMPRESSED_RG,
-            ClientFormat::F16F16F16 => gl::COMPRESSED_RGB,
-            ClientFormat::F16F16F16F16 => gl::COMPRESSED_RGBA,
-            ClientFormat::F32 => gl::COMPRESSED_RED,
-            ClientFormat::F32F32 => gl::COMPRESSED_RG,
-            ClientFormat::F32F32F32 => gl::COMPRESSED_RGB,
-            ClientFormat::F32F32F32F32 => gl::COMPRESSED_RGBA,
+            ClientFormat::U8 => 1,
+            ClientFormat::U8U8 => 2,
+            ClientFormat::U8U8U8 => 3,
+            ClientFormat::U8U8U8U8 => 4,
+            ClientFormat::I8 => 1,
+            ClientFormat::I8I8 => 2,
+            ClientFormat::I8I8I8 => 3,
+            ClientFormat::I8I8I8I8 => 4,
+            ClientFormat::U16 => 1,
+            ClientFormat::U16U16 => 2,
+            ClientFormat::U16U16U16 => 3,
+            ClientFormat::U16U16U16U16 => 4,
+            ClientFormat::I16 => 1,
+            ClientFormat::I16I16 => 2,
+            ClientFormat::I16I16I16 => 3,
+            ClientFormat::I16I16I16I16 => 4,
+            ClientFormat::U32 => 1,
+            ClientFormat::U32U32 => 2,
+            ClientFormat::U32U32U32 => 3,
+            ClientFormat::U32U32U32U32 => 4,
+            ClientFormat::I32 => 1,
+            ClientFormat::I32I32 => 2,
+            ClientFormat::I32I32I32 => 3,
+            ClientFormat::I32I32I32I32 => 4,
+            ClientFormat::U3U3U2 => 3,
+            ClientFormat::U5U6U5 => 3,
+            ClientFormat::U4U4U4U4 => 4,
+            ClientFormat::U5U5U5U1 => 4,
+            ClientFormat::U10U10U10U2 => 4,
+            ClientFormat::F16 => 1,
+            ClientFormat::F16F16 => 2,
+            ClientFormat::F16F16F16 => 3,
+            ClientFormat::F16F16F16F16 => 4,
+            ClientFormat::F32 => 1,
+            ClientFormat::F32F32 => 2,
+            ClientFormat::F32F32F32 => 3,
+            ClientFormat::F32F32F32F32 => 4,
         }
     }
 }
@@ -291,7 +142,7 @@ impl ClientFormat {
 /// Some formats are marked as "guaranteed to be supported". What this means is that you are
 /// certain that the backend will use exactly these formats. If you try to use a format that
 /// is not supported by the backend, it will automatically fall back to a larger format.
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UncompressedFloatFormat {
     /// 
     ///
@@ -415,6 +266,13 @@ pub enum UncompressedFloatFormat {
     F9F9F9,
 }
 
+impl UncompressedFloatFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::UncompressedFloat(self)
+    }
+}
+
 impl ToGlEnum for UncompressedFloatFormat {
     fn to_glenum(&self) -> gl::types::GLenum {
         match *self {
@@ -458,7 +316,7 @@ impl ToGlEnum for UncompressedFloatFormat {
 
 /// List of uncompressed pixel formats that contain signed integral data.
 #[allow(missing_docs)]
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UncompressedIntFormat {
     I8,
     I16,
@@ -475,6 +333,13 @@ pub enum UncompressedIntFormat {
     I8I8I8I8,
     I16I16I16I16,
     I32I32I32I32,
+}
+
+impl UncompressedIntFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::UncompressedIntegral(self)
+    }
 }
 
 impl ToGlEnum for UncompressedIntFormat {
@@ -498,7 +363,7 @@ impl ToGlEnum for UncompressedIntFormat {
 
 /// List of uncompressed pixel formats that contain unsigned integral data.
 #[allow(missing_docs)]
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UncompressedUintFormat {
     U8,
     U16,
@@ -516,6 +381,13 @@ pub enum UncompressedUintFormat {
     U16U16U16U16,
     U32U32U32U32,
     U10U10U10U2,
+}
+
+impl UncompressedUintFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::UncompressedUnsigned(self)
+    }
 }
 
 impl ToGlEnum for UncompressedUintFormat {
@@ -541,7 +413,7 @@ impl ToGlEnum for UncompressedUintFormat {
 /// List of compressed texture formats.
 ///
 /// TODO: many formats are missing
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressedFormat {
     /// Red/green compressed texture with one unsigned component.
     RGTCFormatU,
@@ -551,6 +423,13 @@ pub enum CompressedFormat {
     RGTCFormatUU,
     /// Red/green compressed texture with two signed components.
     RGTCFormatII,
+}
+
+impl CompressedFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::CompressedFormat(self)
+    }
 }
 
 impl ToGlEnum for CompressedFormat {
@@ -569,13 +448,20 @@ impl ToGlEnum for CompressedFormat {
 /// `I16`, `I24` and `I32` are still treated as if they were floating points.
 /// Only the internal representation is integral.
 #[allow(missing_docs)]
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepthFormat {
     I16,
     I24,
     /// May not be supported by all hardware.
     I32,
     F32,
+}
+
+impl DepthFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::DepthFormat(self)
+    }
 }
 
 impl ToGlEnum for DepthFormat {
@@ -593,10 +479,17 @@ impl ToGlEnum for DepthFormat {
 // TODO: If OpenGL 4.3 or ARB_stencil_texturing is not available, then depth/stencil
 //       textures are treated by samplers exactly like depth-only textures
 #[allow(missing_docs)]
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepthStencilFormat {
     I24I8,
     F32I8,
+}
+
+impl DepthStencilFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::DepthStencilFormat(self)
+    }
 }
 
 impl ToGlEnum for DepthStencilFormat {
@@ -614,12 +507,19 @@ impl ToGlEnum for DepthStencilFormat {
 // TODO: Stencil only formats cannot be used for Textures, unless OpenGL 4.4 or
 //       ARB_texture_stencil8 is available.
 #[allow(missing_docs)]
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StencilFormat {
     I1,
     I4,
     I8,
     I16,
+}
+
+impl StencilFormat {
+    /// Turns this format into a more generic `TextureFormat`.
+    pub fn to_texture_format(self) -> TextureFormat {
+        TextureFormat::StencilFormat(self)
+    }
 }
 
 impl ToGlEnum for StencilFormat {
@@ -634,10 +534,14 @@ impl ToGlEnum for StencilFormat {
 }
 
 /// Format of the internal representation of a texture.
-#[derive(Show, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(missing_docs)]
 pub enum TextureFormat {
-    /// 
     UncompressedFloat(UncompressedFloatFormat),
-    /// 
     UncompressedIntegral(UncompressedIntFormat),
+    UncompressedUnsigned(UncompressedUintFormat),
+    CompressedFormat(CompressedFormat),
+    DepthFormat(DepthFormat),
+    StencilFormat(StencilFormat),
+    DepthStencilFormat(DepthStencilFormat),
 }

@@ -15,7 +15,7 @@ use nalgebra;
 
 /// Type of a uniform in a program.
 #[allow(missing_docs)]
-#[derive(Copy, Clone, Show, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UniformType {
     Float,
     FloatVec2,
@@ -139,18 +139,18 @@ pub trait IntoUniformValue<'a> {
 pub enum UniformValue<'a> {
     /// Contains a handle to the buffer, and a function that indicates whether this buffer
     /// can be binded on a block with the given layout.
-    /// The first parameter is a sender which must be used to send a `SyncFence` that expires when
+    /// The last parameter is a sender which must be used to send a `SyncFence` that expires when
     /// the buffer has finished being used.
     Block(&'a TypelessUniformBuffer, Box<Fn(&program::UniformBlock) -> bool + 'static>, Option<Sender<LinearSyncFence>>),
     SignedInt(i32),
     UnsignedInt(u32),
     Float(f32),
-    /// 2x2 column-major matrix.
-    Mat2([[f32; 2]; 2]),
-    /// 3x3 column-major matrix.
-    Mat3([[f32; 3]; 3]),
-    /// 4x4 column-major matrix.
-    Mat4([[f32; 4]; 4]),
+    /// 2x2 column-major matrix. The second parameter describes whether to transpose it.
+    Mat2([[f32; 2]; 2], bool),
+    /// 3x3 column-major matrix. The second parameter describes whether to transpose it.
+    Mat3([[f32; 3]; 3], bool),
+    /// 4x4 column-major matrix. The second parameter describes whether to transpose it.
+    Mat4([[f32; 4]; 4], bool),
     Vec2([f32; 2]),
     Vec3([f32; 3]),
     Vec4([f32; 4]),
@@ -164,6 +164,10 @@ pub enum UniformValue<'a> {
     IntegralTexture2d(&'a texture::IntegralTexture2d, Option<SamplerBehavior>),
     UnsignedTexture2d(&'a texture::UnsignedTexture2d, Option<SamplerBehavior>),
     DepthTexture2d(&'a texture::DepthTexture2d, Option<SamplerBehavior>),
+    Texture2dMultisample(&'a texture::Texture2dMultisample, Option<SamplerBehavior>),
+    IntegralTexture2dMultisample(&'a texture::IntegralTexture2dMultisample, Option<SamplerBehavior>),
+    UnsignedTexture2dMultisample(&'a texture::UnsignedTexture2dMultisample, Option<SamplerBehavior>),
+    DepthTexture2dMultisample(&'a texture::DepthTexture2dMultisample, Option<SamplerBehavior>),
     Texture3d(&'a texture::Texture3d, Option<SamplerBehavior>),
     CompressedTexture3d(&'a texture::CompressedTexture3d, Option<SamplerBehavior>),
     IntegralTexture3d(&'a texture::IntegralTexture3d, Option<SamplerBehavior>),
@@ -179,6 +183,10 @@ pub enum UniformValue<'a> {
     IntegralTexture2dArray(&'a texture::IntegralTexture2dArray, Option<SamplerBehavior>),
     UnsignedTexture2dArray(&'a texture::UnsignedTexture2dArray, Option<SamplerBehavior>),
     DepthTexture2dArray(&'a texture::DepthTexture2dArray, Option<SamplerBehavior>),
+    Texture2dArrayMultisample(&'a texture::Texture2dArrayMultisample, Option<SamplerBehavior>),
+    IntegralTexture2dArrayMultisample(&'a texture::IntegralTexture2dArrayMultisample, Option<SamplerBehavior>),
+    UnsignedTexture2dArrayMultisample(&'a texture::UnsignedTexture2dArrayMultisample, Option<SamplerBehavior>),
+    DepthTexture2dArrayMultisample(&'a texture::DepthTexture2dArrayMultisample, Option<SamplerBehavior>),
 }
 
 impl<'a> UniformValue<'a> {
@@ -188,9 +196,9 @@ impl<'a> UniformValue<'a> {
             (&UniformValue::SignedInt(_), UniformType::Int) => true,
             (&UniformValue::UnsignedInt(_), UniformType::UnsignedInt) => true,
             (&UniformValue::Float(_), UniformType::Float) => true,
-            (&UniformValue::Mat2(_), UniformType::FloatMat2) => true,
-            (&UniformValue::Mat3(_), UniformType::FloatMat3) => true,
-            (&UniformValue::Mat4(_), UniformType::FloatMat4) => true,
+            (&UniformValue::Mat2(_,_ ), UniformType::FloatMat2) => true,
+            (&UniformValue::Mat3(_, _), UniformType::FloatMat3) => true,
+            (&UniformValue::Mat4(_, _), UniformType::FloatMat4) => true,
             (&UniformValue::Vec2(_), UniformType::FloatVec2) => true,
             (&UniformValue::Vec3(_), UniformType::FloatVec3) => true,
             (&UniformValue::Vec4(_), UniformType::FloatVec4) => true,
@@ -300,19 +308,19 @@ impl IntoUniformValue<'static> for f32 {
 
 impl IntoUniformValue<'static> for [[f32; 2]; 2] {
     fn into_uniform_value(self) -> UniformValue<'static> {
-        UniformValue::Mat2(self)
+        UniformValue::Mat2(self, false)
     }
 }
 
 impl IntoUniformValue<'static> for [[f32; 3]; 3] {
     fn into_uniform_value(self) -> UniformValue<'static> {
-        UniformValue::Mat3(self)
+        UniformValue::Mat3(self, false)
     }
 }
 
 impl IntoUniformValue<'static> for [[f32; 4]; 4] {
     fn into_uniform_value(self) -> UniformValue<'static> {
-        UniformValue::Mat4(self)
+        UniformValue::Mat4(self, false)
     }
 }
 

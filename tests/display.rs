@@ -1,15 +1,19 @@
-#![feature(plugin)]
-#![feature(unboxed_closures)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
+#[macro_use]
 extern crate glium;
 
 use glium::Surface;
 
 mod support;
+
+#[test]
+fn get_opengl_version() {
+    let display = support::build_display();
+    let version = display.get_opengl_version();
+    display.assert_no_error();
+
+    assert!(version.1 >= 1);
+}
 
 #[test]
 fn clear_color() {
@@ -139,6 +143,165 @@ fn sync() {
 
     let fence = glium::SyncFence::new_if_supported(&display);
     fence.map(|f| f.wait());
+
+    display.assert_no_error();
+}
+
+#[test]
+fn scissor_followed_by_clear() {
+    let display = support::build_display();
+
+    let params = glium::DrawParameters {
+        scissor: Some(glium::Rect {
+            left: 2,
+            bottom: 2,
+            width: 2,
+            height: 2,
+        }),
+        .. std::default::Default::default()
+    };
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms,
+                              &params).unwrap();
+    texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
+
+    let data: Vec<Vec<(f32, f32, f32, f32)>> = texture.read();
+    for row in data.iter() {
+        for pixel in row.iter() {
+            assert_eq!(pixel, &(1.0, 0.0, 1.0, 1.0));
+        }
+    }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn viewport_followed_by_clear() {
+    let display = support::build_display();
+
+    let params = glium::DrawParameters {
+        viewport: Some(glium::Rect {
+            left: 2,
+            bottom: 2,
+            width: 2,
+            height: 2,
+        }),
+        .. std::default::Default::default()
+    };
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms,
+                              &params).unwrap();
+    texture.as_surface().clear_color(1.0, 0.0, 1.0, 1.0);
+
+    let data: Vec<Vec<(f32, f32, f32, f32)>> = texture.read();
+    for row in data.iter() {
+        for pixel in row.iter() {
+            assert_eq!(pixel, &(1.0, 0.0, 1.0, 1.0));
+        }
+    }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn viewport() {
+    let display = support::build_display();
+
+    let params = glium::DrawParameters {
+        viewport: Some(glium::Rect {
+            left: 0,
+            bottom: 0,
+            width: 1,
+            height: 1,
+        }),
+        .. std::default::Default::default()
+    };
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params).unwrap();
+
+    let data: Vec<Vec<(f32, f32, f32)>> = texture.read();
+
+    assert_eq!(data[0][0], (1.0, 0.0, 0.0));
+    assert_eq!(data[1][0], (0.0, 0.0, 0.0));
+    assert_eq!(data[0][1], (0.0, 0.0, 0.0));
+    assert_eq!(data[1][1], (0.0, 0.0, 0.0));
+
+    for row in data.iter().skip(1) {
+        for pixel in row.iter().skip(1) {
+            assert_eq!(pixel, &(0.0, 0.0, 0.0));
+        }
+    }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn dont_draw_primitives() {
+    let display = support::build_display();
+
+    let params = glium::DrawParameters {
+        draw_primitives: false,
+        .. std::default::Default::default()
+    };
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
+    match texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params) {
+        Ok(_) => (),
+        Err(glium::DrawError::TransformFeedbackNotSupported) => return,
+        e => e.unwrap()
+    }
+
+    let data: Vec<Vec<(f32, f32, f32)>> = texture.read();
+    for row in data.iter() {
+        for pixel in row.iter() {
+            assert_eq!(pixel, &(0.0, 1.0, 0.0));
+        }
+    }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn dont_draw_primitives_then_draw() {
+    let display = support::build_display();
+
+    let params = glium::DrawParameters {
+        draw_primitives: false,
+        .. std::default::Default::default()
+    };
+
+    let (vb, ib, program) = support::build_fullscreen_red_pipeline(&display);
+
+    let texture = support::build_renderable_texture(&display);
+    texture.as_surface().clear_color(0.0, 1.0, 0.0, 0.0);
+    match texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &params) {
+        Ok(_) => (),
+        Err(glium::DrawError::TransformFeedbackNotSupported) => return,
+        e => e.unwrap()
+    }
+    texture.as_surface().draw(&vb, &ib, &program, &glium::uniforms::EmptyUniforms, &std::default::Default::default()).unwrap();
+
+    let data: Vec<Vec<(f32, f32, f32)>> = texture.read();
+    for row in data.iter() {
+        for pixel in row.iter() {
+            assert_eq!(pixel, &(1.0, 0.0, 0.0));
+        }
+    }
 
     display.assert_no_error();
 }

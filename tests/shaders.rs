@@ -1,11 +1,13 @@
-#![feature(plugin)]
-#![feature(unboxed_closures)]
-
-#[plugin]
-extern crate glium_macros;
+//! This file is not named `program.rs`, because executables that contain the string `program`
+//! are treated in a special way by Windows.
 
 extern crate glutin;
+
+#[macro_use]
 extern crate glium;
+
+use std::default::Default;
+use glium::Surface;
 
 mod support;
 
@@ -215,6 +217,7 @@ fn get_uniform_blocks() {
 }
 
 #[test]
+#[ignore]       // TODO: doesn't work with some versions of MESA
 fn get_program_binary() {
     let display = support::build_display();
 
@@ -251,5 +254,158 @@ fn get_program_binary() {
 
     assert!(binary.content.len() >= 1);
 
+    display.assert_no_error();
+}
+
+#[test]
+#[ignore]       // TODO: doesn't work with some versions of MESA
+fn program_binary_reload() {
+    let display = support::build_display();
+
+    let program = glium::Program::from_source(&display,
+        "
+            #version 110
+
+            uniform mat4 matrix;
+
+            attribute vec2 position;
+            attribute vec3 color;
+
+            varying vec3 vColor;
+
+            void main() {
+                gl_Position = vec4(position, 0.0, 1.0) * matrix;
+                vColor = color;
+            }
+        ",
+        "
+            #version 110
+            varying vec3 vColor;
+
+            void main() {
+                gl_FragColor = vec4(vColor, 1.0);
+            }
+        ",
+        None).unwrap();
+
+    let binary = match program.get_binary_if_supported() {
+        None => return,
+        Some(bin) => bin
+    };
+
+    let program2 = glium::Program::new(&display, binary).unwrap();
+
+    display.assert_no_error();
+}
+
+#[test]
+#[ignore]       // TODO: doesn't work with some versions of MESA
+fn program_binary_working() {
+    let display = support::build_display();
+    let (vb, ib) = support::build_rectangle_vb_ib(&display);
+
+    let program_src = glium::Program::from_source(&display,
+        "
+            #version 110
+
+            attribute vec2 position;
+
+            void main() {
+                gl_Position = vec4(position, 0.0, 1.0);
+            }
+        ",
+        "
+            #version 110
+
+            void main() {
+                gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+            }
+        ",
+        None).unwrap();
+
+    let binary = match program_src.get_binary_if_supported() {
+        None => return,
+        Some(bin) => bin
+    };
+
+    let program = glium::Program::new(&display, binary).unwrap();
+
+    let output = support::build_renderable_texture(&display);
+    output.as_surface().clear_color(0.0, 0.0, 0.0, 0.0);
+    output.as_surface().draw(&vb, &ib, &program, &uniform!{}, &Default::default()).unwrap();
+
+    let data: Vec<Vec<(f32, f32, f32, f32)>> = output.read();
+    for row in data.iter() {
+        for pixel in row.iter() {
+            assert_eq!(pixel, &(1.0, 0.0, 0.0, 1.0));
+        }
+    }
+
+    display.assert_no_error();
+}
+
+#[test]
+fn get_transform_feedback_varyings() {    
+    let display = support::build_display();
+
+    let source = glium::program::ProgramCreationInput::SourceCode {
+        tessellation_control_shader: None,
+        tessellation_evaluation_shader: None,
+        geometry_shader: None,
+
+        vertex_shader: "
+            #version 110
+
+            varying vec2 normal;
+            varying int color;
+
+            void main() {
+                normal = vec2(0.0, 0.0);
+                color = 5;
+
+                gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            }
+        ",
+        fragment_shader: "
+            #version 130
+
+            out vec4 color;
+
+            void main() {
+                color = vec4(1.0, 1.0, 1.0, 1.0);
+            }
+        ",
+
+        transform_feedback_varyings: Some((
+            vec!["normal".to_string(), "color".to_string()],
+            glium::program::TransformFeedbackMode::Separate
+        )),
+    };
+
+    let program = match glium::Program::new(&display, source) {
+        Ok(p) => p,
+        Err(glium::program::ProgramCreationError::TransformFeedbackNotSupported) => return,
+        Err(e) => panic!("{:?}")
+    };
+
+    assert_eq!(program.get_transform_feedback_varyings()[0],
+                glium::program::TransformFeedbackVarying {
+                    name: "normal".to_string(),
+                    size: 2 * 4,
+                    ty: glium::vertex::AttributeType::F32F32,
+                });
+
+    assert_eq!(program.get_transform_feedback_varyings()[1],
+                glium::program::TransformFeedbackVarying {
+                    name: "color".to_string(),
+                    size: 4,
+                    ty: glium::vertex::AttributeType::U32,
+                });
+
+    assert_eq!(program.get_transform_feedback_varyings().len(), 2);
+
+    assert_eq!(program.get_transform_feedback_mode(),
+               Some(glium::program::TransformFeedbackMode::Separate));
+    
     display.assert_no_error();
 }

@@ -5,7 +5,7 @@ use gl;
 /// Function to use for out-of-bounds samples.
 ///
 /// This is how GL must handle samples that are outside the texture.
-#[derive(Show, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum SamplerWrapFunction {
     /// Samples at coord `x + 1` map to coord `x`.
     Repeat,
@@ -28,7 +28,7 @@ impl ToGlEnum for SamplerWrapFunction {
 }
 
 /// The function that the GPU will use when loading the value of a texel.
-#[derive(Show, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MagnifySamplerFilter {
     /// The nearest texel will be loaded.
     Nearest,
@@ -47,7 +47,7 @@ impl ToGlEnum for MagnifySamplerFilter {
 }
 
 /// The function that the GPU will use when loading the value of a texel.
-#[derive(Show, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MinifySamplerFilter {
     /// The nearest texel will be loaded.
     ///
@@ -88,17 +88,51 @@ impl ToGlEnum for MinifySamplerFilter {
 /// A sampler.
 pub struct Sampler<'t, T: 't>(pub &'t T, pub SamplerBehavior);
 
+impl<'t, T: 't> Sampler<'t, T> {
+    /// Builds a new `Sampler` with default parameters.
+    pub fn new(texture: &'t T) -> Sampler<'t, T> {
+        Sampler(texture, Default::default())
+    }
+
+    /// Changes the wrap functions of all three coordinates.
+    pub fn wrap_function(mut self, function: SamplerWrapFunction) -> Sampler<'t, T> {
+        self.1.wrap_function = (function, function, function);
+        self
+    }
+
+    /// Changes the minifying filter of the sampler.
+    pub fn minify_filter(mut self, filter: MinifySamplerFilter) -> Sampler<'t, T> {
+        self.1.minify_filter = filter;
+        self
+    }
+
+    /// Changes the magnifying filter of the sampler.
+    pub fn magnify_filter(mut self, filter: MagnifySamplerFilter) -> Sampler<'t, T> {
+        self.1.magnify_filter = filter;
+        self
+    }
+
+    /// Changes the magnifying filter of the sampler.
+    pub fn anisotropy(mut self, level: u16) -> Sampler<'t, T> {
+        self.1.max_anisotropy = level;
+        self
+    }
+}
+
 /// Behavior of a sampler.
 // TODO: GL_TEXTURE_BORDER_COLOR, GL_TEXTURE_MIN_LOD, GL_TEXTURE_MAX_LOD, GL_TEXTURE_LOD_BIAS,
 //       GL_TEXTURE_COMPARE_MODE, GL_TEXTURE_COMPARE_FUNC
-#[derive(Show, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct SamplerBehavior {
     /// Functions to use for the X, Y, and Z coordinates.
     pub wrap_function: (SamplerWrapFunction, SamplerWrapFunction, SamplerWrapFunction),
+
     /// Filter to use when minifying the texture.
     pub minify_filter: MinifySamplerFilter,
+
     /// Filter to use when magnifying the texture.
     pub magnify_filter: MagnifySamplerFilter,
+
     /// `1` means no anisotropic filtering, any value above `1` sets the max anisotropy.
     ///
     /// ## Compatibility

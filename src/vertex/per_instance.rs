@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use buffer::{self, Buffer};
@@ -8,12 +9,14 @@ use Display;
 use GlObject;
 
 use context;
+use version::Api;
 use gl;
 
 /// A list of vertices loaded in the graphics card's memory.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct PerInstanceAttributesBuffer<T> {
     buffer: PerInstanceAttributesBufferAny,
+    marker: PhantomData<T>,
 }
 
 impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
@@ -22,18 +25,17 @@ impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
     /// # Example
     ///
     /// ```no_run
-    /// # #![feature(plugin)]
-    /// # #[plugin]
-    /// # extern crate glium_macros;
+    /// # #[macro_use]
     /// # extern crate glium;
     /// # extern crate glutin;
     /// # fn main() {
-    /// #[vertex_format]
     /// #[derive(Copy)]
     /// struct Vertex {
     ///     position: [f32; 3],
     ///     texcoords: [f32; 2],
     /// }
+    ///
+    /// implement_vertex!(Vertex, position, texcoords);
     ///
     /// # let display: glium::Display = unsafe { ::std::mem::uninitialized() };
     /// let vertex_buffer = glium::vertex::PerInstanceAttributesBuffer::new(&display, vec![
@@ -52,7 +54,7 @@ impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
     pub fn new_if_supported(display: &Display, data: Vec<T>)
                             -> Option<PerInstanceAttributesBuffer<T>>
     {
-        if display.context.context.get_version() < &context::GlVersion(3, 3) &&
+        if display.context.context.get_version() < &context::GlVersion(Api::Gl, 3, 3) &&
             !display.context.context.get_extensions().gl_arb_instanced_arrays
         {
             return None;
@@ -68,7 +70,8 @@ impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
                 buffer: buffer,
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         })
     }
 
@@ -86,7 +89,8 @@ impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
                 buffer: buffer,
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         }
     }
 
@@ -104,13 +108,13 @@ impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
     pub fn new_persistent_if_supported(display: &Display, data: Vec<T>)
                                        -> Option<PerInstanceAttributesBuffer<T>>
     {
-        if display.context.context.get_version() < &context::GlVersion(3, 3) &&
+        if display.context.context.get_version() < &context::GlVersion(Api::Gl, 3, 3) &&
             !display.context.context.get_extensions().gl_arb_instanced_arrays
         {
             return None;
         }
 
-        if display.context.context.get_version() < &context::GlVersion(4, 4) &&
+        if display.context.context.get_version() < &context::GlVersion(Api::Gl, 4, 4) &&
            !display.context.context.get_extensions().gl_arb_buffer_storage
         {
             return None;
@@ -126,20 +130,18 @@ impl<T: Vertex + 'static + Send> PerInstanceAttributesBuffer<T> {
                 buffer: buffer,
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         })
     }
 }
 
-impl<T: Send + Copy> PerInstanceAttributesBuffer<T> {
+impl<T: Send + Copy + 'static> PerInstanceAttributesBuffer<T> {
     /// Builds a new vertex buffer from an indeterminate data type and bindings.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # #![feature(plugin)]
-    /// # #[plugin]
-    /// # extern crate glium_macros;
     /// # extern crate glium;
     /// # extern crate glutin;
     /// # fn main() {
@@ -164,7 +166,6 @@ impl<T: Send + Copy> PerInstanceAttributesBuffer<T> {
     /// # }
     /// ```
     ///
-    #[experimental]
     pub unsafe fn new_raw(display: &Display, data: Vec<T>,
                           bindings: VertexFormat, elements_size: usize) -> PerInstanceAttributesBuffer<T>
     {
@@ -173,7 +174,8 @@ impl<T: Send + Copy> PerInstanceAttributesBuffer<T> {
                 buffer: Buffer::new::<buffer::ArrayBuffer, T>(display, data, false),
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         }
     }
 
@@ -273,6 +275,7 @@ impl<T> PerInstanceAttributesBuffer<T> {
 }
 
 impl<T> GlObject for PerInstanceAttributesBuffer<T> {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -291,7 +294,7 @@ impl<'a, T> IntoVerticesSource<'a> for &'a PerInstanceAttributesBuffer<T> {
 ///
 /// This struct is provided for convenience, so that you can have a `Vec<PerInstanceAttributesBufferAny>`,
 /// or return a `PerInstanceAttributesBufferAny` instead of a `PerInstanceAttributesBuffer<MyPrivateVertexType>`.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct PerInstanceAttributesBufferAny {
     buffer: Buffer,
     bindings: VertexFormat,
@@ -318,6 +321,7 @@ impl PerInstanceAttributesBufferAny {
     pub unsafe fn into_vertex_buffer<T>(self) -> PerInstanceAttributesBuffer<T> {
         PerInstanceAttributesBuffer {
             buffer: self,
+            marker: PhantomData,
         }
     }
 }
@@ -338,6 +342,7 @@ impl Drop for PerInstanceAttributesBufferAny {
 }
 
 impl GlObject for PerInstanceAttributesBufferAny {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }

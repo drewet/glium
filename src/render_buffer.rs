@@ -19,6 +19,7 @@ use texture::{UncompressedFloatFormat, DepthFormat, StencilFormat, DepthStencilF
 
 use {gl, context};
 use {GlObject, DisplayImpl, ToGlEnum};
+use version::Api;
 
 /// A render buffer is similar to a texture, but is optimized for usage as a draw target.
 ///
@@ -50,6 +51,7 @@ impl ToColorAttachment for RenderBuffer {
 }
 
 impl GlObject for RenderBuffer {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -85,6 +87,7 @@ impl ToDepthAttachment for DepthRenderBuffer {
 }
 
 impl GlObject for DepthRenderBuffer {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -120,6 +123,7 @@ impl ToStencilAttachment for StencilRenderBuffer {
 }
 
 impl GlObject for StencilRenderBuffer {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -155,6 +159,7 @@ impl ToDepthStencilAttachment for DepthStencilRenderBuffer {
 }
 
 impl GlObject for DepthStencilRenderBuffer {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -175,33 +180,40 @@ impl RenderBufferImpl {
     {
         let (tx, rx) = channel();
 
-        display.context.context.exec(move |: ctxt| {
+        // TODO: check that dimensions don't exceed GL_MAX_RENDERBUFFER_SIZE
+
+        display.context.context.exec(move |ctxt| {
             unsafe {
-                let id: gl::types::GLuint = mem::uninitialized();
-                if ctxt.version >= &context::GlVersion(3, 0) {
-                    ctxt.gl.GenRenderbuffers(1, mem::transmute(&id));
-                } else {
-                    ctxt.gl.GenRenderbuffersEXT(1, mem::transmute(&id));
-                }
+                let mut id = mem::uninitialized();
 
-                tx.send(id).unwrap();
-
-                // TODO: check that dimensions don't exceed GL_MAX_RENDERBUFFER_SIZE
-                if ctxt.version >= &context::GlVersion(4, 5) {
+                if ctxt.version >= &context::GlVersion(Api::Gl, 4, 5) ||
+                    ctxt.extensions.gl_arb_direct_state_access
+                {
+                    ctxt.gl.CreateRenderbuffers(1, &mut id);
                     ctxt.gl.NamedRenderbufferStorage(id, format, width as gl::types::GLsizei,
                                                      height as gl::types::GLsizei);
 
-                } else if ctxt.extensions.gl_ext_direct_state_access {
-                    ctxt.gl.NamedRenderbufferStorageEXT(id, format, width as gl::types::GLsizei,
-                                                        height as gl::types::GLsizei);
-
-                } else {
+                } else if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) {
+                    ctxt.gl.GenRenderbuffers(1, &mut id);
                     ctxt.gl.BindRenderbuffer(gl::RENDERBUFFER, id);
                     ctxt.state.renderbuffer = id;
                     ctxt.gl.RenderbufferStorage(gl::RENDERBUFFER, format,
                                                 width as gl::types::GLsizei,
                                                 height as gl::types::GLsizei);
+
+                } else if ctxt.extensions.gl_ext_framebuffer_object {
+                    ctxt.gl.GenRenderbuffersEXT(1, &mut id);
+                    ctxt.gl.BindRenderbufferEXT(gl::RENDERBUFFER_EXT, id);
+                    ctxt.state.renderbuffer = id;
+                    ctxt.gl.RenderbufferStorageEXT(gl::RENDERBUFFER_EXT, format,
+                                                   width as gl::types::GLsizei,
+                                                   height as gl::types::GLsizei);
+
+                } else {
+                    unreachable!();
                 }
+
+                tx.send(id).unwrap();
             }
         });
 
@@ -222,17 +234,25 @@ impl Drop for RenderBufferImpl {
 
         // destroying
         let id = self.id.clone();
-        self.display.context.exec(move |: ctxt| {
+        self.display.context.exec(move |ctxt| {
             unsafe {
-                if ctxt.state.renderbuffer == id {
-                    ctxt.gl.BindRenderbuffer(gl::RENDERBUFFER, 0);
-                    ctxt.state.renderbuffer = 0;
-                }
 
-                if ctxt.version >= &context::GlVersion(3, 0) {
+                if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) {
+                    if ctxt.state.renderbuffer == id {
+                        ctxt.gl.BindRenderbuffer(gl::RENDERBUFFER, 0);
+                        ctxt.state.renderbuffer = 0;
+                    }
                     ctxt.gl.DeleteRenderbuffers(1, [ id ].as_ptr());
-                } else {
+
+                } else if ctxt.extensions.gl_ext_framebuffer_object {
+                    if ctxt.state.renderbuffer == id {
+                        ctxt.gl.BindRenderbufferEXT(gl::RENDERBUFFER_EXT, 0);
+                        ctxt.state.renderbuffer = 0;
+                    }
                     ctxt.gl.DeleteRenderbuffersEXT(1, [ id ].as_ptr());
+
+                } else {
+                    unreachable!();
                 }
             }
         });
@@ -240,6 +260,7 @@ impl Drop for RenderBufferImpl {
 }
 
 impl GlObject for RenderBufferImpl {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.id
     }

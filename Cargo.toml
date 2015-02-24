@@ -1,15 +1,17 @@
 [package]
 name = "glium"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "High-level and safe OpenGL wrapper."
 keywords = ["opengl", "gamedev"]
-documentation = "http://tomaka.github.io/glium"
-license = "Apache"
+documentation = "http://tomaka.github.io/glium/glium/index.html"
+homepage = "http://tomaka.github.io/glium"
+repository = "https://github.com/tomaka/glium"
+license = "Apache-2.0"
 build = "build/main.rs"
 
 [features]
-default = ["image", "cgmath", "nalgebra", "gl_read_buffer"]
+default = ["image", "cgmath", "nalgebra", "gl_read_buffer", "gl_depth_textures"]
 gl_read_buffer = []
 gl_uniform_blocks = []
 gl_sync = []
@@ -17,10 +19,10 @@ gl_persistent_mapping = ["gl_sync"]
 gl_program_binary = []
 gl_tessellation = []
 gl_instancing = []
+gl_integral_textures = []
+gl_depth_textures = []
+gl_stencil_textures = []
 headless = ["glutin/headless"]
-
-[dependencies.compile_msg]
-git = "https://github.com/huonw/compile_msg"
 
 [dependencies.glutin]
 git = "http://github.com/tomaka/glutin"
@@ -40,10 +42,16 @@ optional = true
 
 [dependencies]
 gl_common = "*"
+libc = "*"
 
 [build-dependencies]
 gl_generator = "*"
 khronos_api = "*"
+
+[dev-dependencies]
+clock_ticks = "*"
+genmesh = "*"
+obj = "*"
 
 [dev-dependencies.glium_macros]
 path = "macros"

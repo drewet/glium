@@ -8,30 +8,22 @@ Test supports module.
 use glutin;
 use glium::{self, DisplayBuild};
 
-use std::os;
+use std::env;
 
 /// Returns true if we are executing headless tests.
 pub fn is_headless() -> bool {
-    os::getenv("HEADLESS_TESTS").is_some()
+    env::var("HEADLESS_TESTS").is_ok()
 }
 
 /// Builds a headless display for tests.
 #[cfg(feature = "headless")]
 pub fn build_display() -> glium::Display {
     let display = if is_headless() {
-        glutin::HeadlessRendererBuilder::new(1024, 768).build_glium().unwrap()
+        glutin::HeadlessRendererBuilder::new(1024, 768).with_gl_debug_flag(true)
+                                                       .build_glium().unwrap()
     } else {
-        glutin::WindowBuilder::new().with_visibility(false).build_glium().unwrap()
-    };
-
-    unsafe {
-        display.set_debug_callback_sync(|&mut: msg: String, _, _, severity: glium::debug::Severity| {
-            if severity == glium::debug::Severity::Medium ||
-               severity == glium::debug::Severity::High
-            {
-                panic!("{}", msg);
-            }
-        })
+        glutin::WindowBuilder::new().with_gl_debug_flag(true).with_visibility(false)
+                                    .build_glium().unwrap()
     };
 
     display
@@ -41,20 +33,8 @@ pub fn build_display() -> glium::Display {
 #[cfg(not(feature = "headless"))]
 pub fn build_display() -> glium::Display {
     assert!(!is_headless());
-
-    let display = glutin::WindowBuilder::new().with_visibility(false).build_glium().unwrap();
-
-    unsafe {
-        display.set_debug_callback_sync(|&mut: msg: String, _, _, severity: glium::debug::Severity| {
-            if severity == glium::debug::Severity::Medium ||
-               severity == glium::debug::Severity::High
-            {
-                panic!("{}", msg);
-            }
-        })
-    };
-
-    display
+    glutin::WindowBuilder::new().with_gl_debug_flag(true).with_visibility(false)
+                                .build_glium().unwrap()
 }
 
 /// Builds a 2x2 unicolor texture.
@@ -73,11 +53,12 @@ pub fn build_unicolor_texture2d(display: &glium::Display, red: f32, green: f32, 
 pub fn build_fullscreen_red_pipeline(display: &glium::Display) -> (glium::vertex::VertexBufferAny,
     glium::IndexBuffer, glium::Program)
 {
-    #[vertex_format]
     #[derive(Copy)]
     struct Vertex {
         position: [f32; 2],
     }
+
+    implement_vertex!(Vertex, position);
 
     (
         glium::VertexBuffer::new(display, vec![
@@ -85,7 +66,7 @@ pub fn build_fullscreen_red_pipeline(display: &glium::Display) -> (glium::vertex
             Vertex { position: [-1.0, -1.0] }, Vertex { position: [1.0, -1.0] },
         ]).into_vertex_buffer_any(),
 
-        glium::IndexBuffer::new(display, glium::index_buffer::TriangleStrip(vec![0u8, 1, 2, 3])),
+        glium::IndexBuffer::new(display, glium::index::TriangleStrip(vec![0u8, 1, 2, 3])),
 
         glium::Program::from_source(display,
             "
@@ -114,11 +95,12 @@ pub fn build_fullscreen_red_pipeline(display: &glium::Display) -> (glium::vertex
 pub fn build_rectangle_vb_ib(display: &glium::Display)
     -> (glium::vertex::VertexBufferAny, glium::IndexBuffer)
 {
-    #[vertex_format]
     #[derive(Copy)]
     struct Vertex {
         position: [f32; 2],
     }
+
+    implement_vertex!(Vertex, position);
 
     (
         glium::VertexBuffer::new(display, vec![
@@ -126,13 +108,11 @@ pub fn build_rectangle_vb_ib(display: &glium::Display)
             Vertex { position: [-1.0, -1.0] }, Vertex { position: [1.0, -1.0] },
         ]).into_vertex_buffer_any(),
 
-        glium::IndexBuffer::new(display, glium::index_buffer::TriangleStrip(vec![0u8, 1, 2, 3])),
+        glium::IndexBuffer::new(display, glium::index::TriangleStrip(vec![0u8, 1, 2, 3])),
     )
 }
 
 /// Builds a texture suitable for rendering.
 pub fn build_renderable_texture(display: &glium::Display) -> glium::Texture2d {
-    glium::Texture2d::new_empty(display,
-                                glium::texture::UncompressedFloatFormat::U8U8U8U8,
-                                1024, 1024)
+    glium::Texture2d::empty(display, 1024, 1024)
 }

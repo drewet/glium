@@ -1,12 +1,9 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
 
 #[macro_use]
 extern crate glium;
+
+mod support;
 
 use glium::Surface;
 
@@ -20,12 +17,13 @@ fn main() {
 
     // building the vertex buffer, which contains all the vertices that we will draw
     let vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 2],
             color: [f32; 3],
         }
+
+        implement_vertex!(Vertex, position, color);
 
         glium::VertexBuffer::new(&display, 
             vec![
@@ -38,7 +36,7 @@ fn main() {
 
     // building the index buffer
     let index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::TrianglesList(vec![0u16, 1, 2]));
+        glium::index::TrianglesList(vec![0u16, 1, 2]));
 
     // compiling shaders and linking them together
     let program = glium::Program::from_source(&display,
@@ -74,11 +72,7 @@ fn main() {
         .unwrap();
     
     // the main loop
-    // each cycle will draw once
-    'main: loop {
-        use std::io::timer;
-        use std::time::Duration;
-
+    support::start_loop(|| {
         // building the uniforms
         let uniforms = uniform! {
             matrix: [
@@ -95,15 +89,14 @@ fn main() {
         target.draw(&vertex_buffer, &index_buffer, &program, &uniforms, &std::default::Default::default()).unwrap();
         target.finish();
 
-        // sleeping for some time in order not to use up too much CPU
-        timer::sleep(Duration::milliseconds(17));
-
         // polling and handling the events received by the window
-        for event in display.poll_events().into_iter() {
+        for event in display.poll_events() {
             match event {
-                glutin::Event::Closed => break 'main,
+                glutin::Event::Closed => return support::Action::Stop,
                 _ => ()
             }
         }
-    }
+
+        support::Action::Continue
+    });
 }

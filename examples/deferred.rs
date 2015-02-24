@@ -1,8 +1,5 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
 extern crate glutin;
+#[macro_use]
 extern crate glium;
 #[cfg(feature = "cgmath")]
 extern crate cgmath;
@@ -13,7 +10,9 @@ use glium::Surface;
 use glium::DisplayBuild;
 #[cfg(feature = "cgmath")]
 use cgmath::FixedArray;
-use std::io::BufReader;
+use std::old_io::BufReader;
+
+mod support;
 
 #[cfg(not(all(feature = "cgmath", feature = "image")))]
 fn main() {
@@ -35,13 +34,14 @@ fn main() {
     let opengl_texture = glium::texture::Texture2d::new(&display, image);
 
     let floor_vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 4],
             normal: [f32; 4],
             texcoord: [f32; 2]
         }
+
+        implement_vertex!(Vertex, position, normal, texcoord);
         
         glium::VertexBuffer::new(&display,
             vec![
@@ -54,15 +54,16 @@ fn main() {
     };
 
     let floor_index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::TrianglesList(vec![0u16, 1, 2, 0, 2, 3]));
+        glium::index::TrianglesList(vec![0u16, 1, 2, 0, 2, 3]));
 
     let quad_vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 4],
             texcoord: [f32; 2]
         }
+
+        implement_vertex!(Vertex, position, texcoord);
         
         glium::VertexBuffer::new(&display,
             vec![
@@ -75,7 +76,7 @@ fn main() {
     };
 
     let quad_index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::TrianglesList(vec![0u16, 1, 2, 0, 2, 3]));
+        glium::index::TrianglesList(vec![0u16, 1, 2, 0, 2, 3]));
 
     // compiling shaders and linking them together
     let prepass_program = glium::Program::from_source(&display,
@@ -228,7 +229,7 @@ fn main() {
         None)
         .unwrap();
 
-    // creating the uniforms structure
+    /*// creating the uniforms structure
     #[uniforms]
     #[derive(Copy)]
     struct PrepassUniforms<'a> {
@@ -256,9 +257,9 @@ fn main() {
         matrix: [[f32; 4]; 4],
         decal_texture: &'a glium::texture::Texture2d,
         lighting_texture: &'a glium::texture::Texture2d
-    }
+    }*/
 
-    struct Light<'a> {
+    struct Light {
         position: [f32; 4],
         color: [f32; 3],
         attenuation: [f32; 3],
@@ -317,18 +318,15 @@ fn main() {
     ];
 
     // the main loop
-    // each cycle will draw once
-    'main: loop {
-        use std::io::timer;
-        use std::time::Duration;
-
+    support::start_loop(|| {
         // prepass
-        let uniforms = PrepassUniforms {
+        let uniforms = uniform! {
             perspective_matrix: *fixed_perspective_matrix,
             view_matrix: *fixed_view_matrix,
             model_matrix: *fixed_model_matrix,
             texture: &opengl_texture
         };
+        framebuffer.clear_color(0.0, 0.0, 0.0, 0.0);
         framebuffer.draw(&floor_vertex_buffer, &floor_index_buffer, &prepass_program, &uniforms, &std::default::Default::default()).unwrap();
 
         // lighting
@@ -342,7 +340,7 @@ fn main() {
         };
         light_buffer.clear_color(0.0, 0.0, 0.0, 0.0);
         for light in lights.iter() {
-            let uniforms = LightingUniforms {
+            let uniforms = uniform! {
                 matrix: *fixed_ortho_matrix,
                 position_texture: &texture1,
                 normal_texture: &texture2,
@@ -355,7 +353,7 @@ fn main() {
         }
 
         // composition
-        let uniforms = CompositionUniforms {
+        let uniforms = uniform! {
             matrix: *fixed_ortho_matrix,
             decal_texture: &texture3,
             lighting_texture: &light_texture
@@ -365,15 +363,14 @@ fn main() {
         target.draw(&quad_vertex_buffer, &quad_index_buffer, &composition_program, &uniforms, &std::default::Default::default()).unwrap();
         target.finish();
 
-        // sleeping for some time in order not to use up too much CPU
-        timer::sleep(Duration::milliseconds(17));
-
         // polling and handling the events received by the window
-        for event in display.poll_events().into_iter() {
+        for event in display.poll_events() {
             match event {
-                glutin::Event::Closed => break 'main,
+                glutin::Event::Closed => return support::Action::Stop,
                 _ => ()
             }
         }
-    }
+
+        support::Action::Continue
+    });
 }

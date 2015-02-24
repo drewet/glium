@@ -1,33 +1,72 @@
-use libc;
 use std::ptr;
 use std::sync::mpsc::{channel, Sender};
 
 use Display;
 use DrawError;
+use Handle;
 
 use fbo::{self, FramebufferAttachments};
 
 use sync;
 use uniforms::{Uniforms, UniformValue, SamplerBehavior};
 use {Program, DrawParameters, GlObject, ToGlEnum};
-use index_buffer::{self, IndicesSource};
-use vertex::VerticesSource;
+use index::{self, IndicesSource};
+use vertex::{MultiVerticesSource, VerticesSource};
 
 use {program, vertex_array_object};
-use {gl, context};
+use {gl, context, draw_parameters};
+use version::Api;
 
 /// Draws everything.
-pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachments>,
-                      mut vertex_buffers: &mut [VerticesSource], mut indices: IndicesSource<I>,
-                      program: &Program, uniforms: U, draw_parameters: &DrawParameters,
-                      dimensions: (u32, u32)) -> Result<(), DrawError>
-                      where U: Uniforms, I: index_buffer::Index
+pub fn draw<'a, I, U, V>(display: &Display, framebuffer: Option<&FramebufferAttachments>,
+                         vertex_buffers: V, mut indices: IndicesSource<I>,
+                         program: &Program, uniforms: U, draw_parameters: &DrawParameters,
+                         dimensions: (u32, u32)) -> Result<(), DrawError>
+                         where U: Uniforms, I: index::Index, V: MultiVerticesSource<'a>
 {
-    try!(draw_parameters.validate());
+    // TODO: avoid this allocation
+    let mut vertex_buffers = vertex_buffers.iter().collect::<Vec<_>>();
+
+    try!(draw_parameters::validate(display, draw_parameters));
 
     // obtaining the identifier of the FBO to draw upon
     let fbo_id = display.context.framebuffer_objects.as_ref().unwrap()
                         .get_framebuffer_for_drawing(framebuffer, &display.context.context);
+
+    // using a base vertex is not yet supported
+    // TODO: 
+    for src in vertex_buffers.iter() {
+        match src {
+            &VerticesSource::VertexBuffer(_, _, offset, _) => {
+                if offset != 0 {
+                    panic!("Using a base vertex different from 0 is not yet implemented");
+                }
+            },
+            _ => ()
+        }
+    }
+
+    // getting the number of vertices in the vertices sources, or `None` if there is a
+    // mismatch
+    let vertices_count = {
+        let mut vertices_count: Option<usize> = None;
+        for src in vertex_buffers.iter() {
+            match src {
+                &VerticesSource::VertexBuffer(_, _, _, len) => {
+                    if let Some(curr) = vertices_count {
+                        if curr != len {
+                            vertices_count = None;
+                            break;
+                        }
+                    } else {
+                        vertices_count = Some(len);
+                    }
+                },
+                _ => ()
+            }
+        }
+        vertices_count
+    };
 
     // getting the number of instances to draw
     let instances_count = {
@@ -56,6 +95,9 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
 
     // list of the commands that can be executed
     enum DrawCommand {
+        DrawArrays(gl::types::GLenum, gl::types::GLint, gl::types::GLsizei),
+        DrawArraysInstanced(gl::types::GLenum, gl::types::GLint, gl::types::GLsizei,
+                            gl::types::GLsizei),
         DrawElements(gl::types::GLenum, gl::types::GLsizei, gl::types::GLenum,
                      ptr::Unique<gl::types::GLvoid>),
         DrawElementsInstanced(gl::types::GLenum, gl::types::GLsizei, gl::types::GLenum,
@@ -72,14 +114,25 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
                 DrawCommand::DrawElements(buffer.get_primitives_type().to_glenum(),
                                           length as gl::types::GLsizei,
                                           buffer.get_indices_type().to_glenum(),
-                                          ptr::Unique::null())
+                                          unsafe { ptr::Unique::new(ptr::null_mut()) })
             },
             &IndicesSource::Buffer { ref pointer, primitives, offset, length } => {
                 assert!(offset == 0);       // not yet implemented
                 must_sync = true;
                 DrawCommand::DrawElements(primitives.to_glenum(), length as gl::types::GLsizei,
-                                          <I as index_buffer::Index>::get_type().to_glenum(),
-                                          ptr::Unique(pointer.as_ptr() as *mut gl::types::GLvoid))
+                                          <I as index::Index>::get_type().to_glenum(),
+                                          unsafe { ptr::Unique::new(pointer.as_ptr() as *mut gl::types::GLvoid) })
+            },
+            &IndicesSource::NoIndices { primitives } => {
+                must_sync = false;
+
+                let vertices_count = match vertices_count {
+                    Some(c) => c,
+                    None => return Err(DrawError::VerticesSourcesLengthMismatch)
+                };
+
+                DrawCommand::DrawArrays(primitives.to_glenum(), 0,
+                                        vertices_count as gl::types::GLsizei)
             },
         };
 
@@ -87,13 +140,16 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
             (DrawCommand::DrawElements(a, b, c, d), Some(e)) => {
                 DrawCommand::DrawElementsInstanced(a, b, c, d, e as gl::types::GLsizei)
             },
+            (DrawCommand::DrawArrays(a, b, c), Some(d)) => {
+                DrawCommand::DrawArraysInstanced(a, b, c, d as gl::types::GLsizei)
+            },
             (a, _) => a
         }
     };
 
     // handling tessellation
     let vertices_per_patch = match indices.get_primitives_type() {
-        index_buffer::PrimitiveType::Patches { vertices_per_patch } => {
+        index::PrimitiveType::Patches { vertices_per_patch } => {
             if let Some(max) = display.context.context.capabilities().max_patch_vertices {
                 if vertices_per_patch == 0 || vertices_per_patch as gl::types::GLint > max {
                     return Err(DrawError::UnsupportedVerticesPerPatch);
@@ -102,16 +158,20 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
                 return Err(DrawError::TessellationNotSupported);
             }
 
-            if !program.has_tessellation_shaders() {    // TODO: 
+            // TODO: programs created from binaries have the wrong value
+            // for `has_tessellation_shaders`
+            /*if !program.has_tessellation_shaders() {    // TODO: 
                 panic!("Default tessellation level is not supported yet");
-            }
+            }*/
 
             Some(vertices_per_patch)
         },
         _ => {
-            if program.has_tessellation_shaders() {
+            // TODO: programs created from binaries have the wrong value
+            // for `has_tessellation_shaders`
+            /*if program.has_tessellation_shaders() {
                 return Err(DrawError::TessellationWithoutPatches);
-            }
+            }*/
 
             None
         },
@@ -128,7 +188,7 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
         let mut fences = Vec::new();
 
         let mut visiting_result = Ok(());
-        uniforms.visit_values(|&mut: name, value| {
+        uniforms.visit_values(|name, value| {
             if visiting_result.is_err() { return; }
 
             if let Some(uniform) = uniforms_locations.get(name) {
@@ -181,7 +241,7 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
         // adding the vertex buffer and index buffer to the list of fences
         for vertex_buffer in vertex_buffers.iter_mut() {
             match vertex_buffer {
-                &mut VerticesSource::VertexBuffer(_, ref mut fence) => {
+                &mut VerticesSource::VertexBuffer(_, ref mut fence, _, _) => {
                     if let Some(fence) = fence.take() {
                         fences.push(fence);
                     }
@@ -220,13 +280,16 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
     let draw_parameters = draw_parameters.clone();
 
     // sending the command
-    display.context.context.exec(move |: mut ctxt| {
+    display.context.context.exec(move |mut ctxt| {
         unsafe {
             fbo::bind_framebuffer(&mut ctxt, fbo_id, true, false);
 
             // binding program
             if ctxt.state.program != program_id {
-                ctxt.gl.UseProgram(program_id);
+                match program_id {
+                    Handle::Id(id) => ctxt.gl.UseProgram(id),
+                    Handle::Handle(id) => ctxt.gl.UseProgramObjectARB(id),
+                }
                 ctxt.state.program = program_id;
             }
 
@@ -237,7 +300,7 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
 
             // binding VAO
             if ctxt.state.vertex_array != vao_id {
-                if ctxt.version >= &context::GlVersion(3, 0) ||
+                if ctxt.version >= &context::GlVersion(Api::Gl, 3, 0) ||
                     ctxt.extensions.gl_arb_vertex_array_object
                 {
                     ctxt.gl.BindVertexArray(vao_id);
@@ -251,7 +314,7 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
             }
 
             // sync-ing parameters
-            draw_parameters.sync(&mut ctxt, dimensions);
+            draw_parameters::sync(&draw_parameters, &mut ctxt, dimensions);
 
             // vertices per patch
             if let Some(vertices_per_patch) = vertices_per_patch {
@@ -264,11 +327,17 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
 
             // drawing
             match draw_command {
+                DrawCommand::DrawArrays(a, b, c) => {
+                    ctxt.gl.DrawArrays(a, b, c);
+                },
+                DrawCommand::DrawArraysInstanced(a, b, c, d) => {
+                    ctxt.gl.DrawArraysInstanced(a, b, c, d);
+                },
                 DrawCommand::DrawElements(a, b, c, d) => {
-                    ctxt.gl.DrawElements(a, b, c, d.0);
+                    ctxt.gl.DrawElements(a, b, c, d.get());
                 },
                 DrawCommand::DrawElementsInstanced(a, b, c, d, e) => {
-                    ctxt.gl.DrawElementsInstanced(a, b, c, d.0, e);
+                    ctxt.gl.DrawElementsInstanced(a, b, c, d.get(), e);
                 },
             }
 
@@ -294,8 +363,7 @@ pub fn draw<'a, I, U>(display: &Display, framebuffer: Option<&FramebufferAttachm
 
 // TODO: we use a `Fn` instead of `FnOnce` because of that "std::thunk" issue
 fn block_to_binder(display: &Display, value: &UniformValue, block: &program::UniformBlock,
-                   program: gl::types::GLuint, current_bind_point: &mut gl::types::GLuint,
-                   name: &str)
+                   program: Handle, current_bind_point: &mut gl::types::GLuint, name: &str)
                    -> Result<(Box<Fn(&mut context::CommandContext) + Send>,
                        Option<Sender<sync::LinearSyncFence>>), DrawError>
 {
@@ -310,6 +378,11 @@ fn block_to_binder(display: &Display, value: &UniformValue, block: &program::Uni
 
             let buffer = buffer.get_id();
             let binding = block.binding as gl::types::GLuint;
+
+            let program = match program {
+                Handle::Id(id) => id,
+                _ => unreachable!()
+            };
 
             let bind_fn = Box::new(move |&: ctxt: &mut context::CommandContext| {
                 unsafe {
@@ -333,6 +406,19 @@ fn uniform_to_binder(display: &Display, value: &UniformValue, location: gl::type
                      active_texture: &mut gl::types::GLenum, name: &str)
                      -> Result<Box<Fn(&mut context::CommandContext) + Send>, DrawError>
 {
+    macro_rules! uniform(
+        ($ctxt:expr, $uniform:ident, $uniform_arb:ident, $($params:expr),+) => (
+            unsafe {
+                if $ctxt.version >= &context::GlVersion(Api::Gl, 1, 5) {
+                    $ctxt.gl.$uniform($($params),+)
+                } else {
+                    assert!($ctxt.extensions.gl_arb_shader_objects);
+                    $ctxt.gl.$uniform_arb($($params),+)
+                }
+            }
+        )
+    );
+
     match *value {
         UniformValue::Block(_, _, _) => {
             return Err(DrawError::UniformBufferToValue {
@@ -341,65 +427,58 @@ fn uniform_to_binder(display: &Display, value: &UniformValue, location: gl::type
         },
         UniformValue::SignedInt(val) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.Uniform1i(location, val)
-                }
+                uniform!(ctxt, Uniform1i, Uniform1iARB, location, val);
             }))
         },
         UniformValue::UnsignedInt(val) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
+                // Uniform1uiARB doesn't exist
                 unsafe {
-                    ctxt.gl.Uniform1ui(location, val)
+                    if ctxt.version >= &context::GlVersion(Api::Gl, 1, 5) {
+                        ctxt.gl.Uniform1ui(location, val)
+                    } else {
+                        assert!(ctxt.extensions.gl_arb_shader_objects);
+                        ctxt.gl.Uniform1iARB(location, val as gl::types::GLint)
+                    }
                 }
             }))
         },
         UniformValue::Float(val) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.Uniform1f(location, val)
-                }
+                uniform!(ctxt, Uniform1f, Uniform1fARB, location, val);
             }))
         },
-        UniformValue::Mat2(val) => {
+        UniformValue::Mat2(val, transpose) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.UniformMatrix2fv(location, 1, 0, val.as_ptr() as *const f32)
-                }
+                uniform!(ctxt, UniformMatrix2fv, UniformMatrix2fvARB,
+                         location, 1, if transpose { 1 } else { 0 }, val.as_ptr() as *const f32);
             }))
         },
-        UniformValue::Mat3(val) => {
+        UniformValue::Mat3(val, transpose) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.UniformMatrix3fv(location, 1, 0, val.as_ptr() as *const f32)
-                }
+                uniform!(ctxt, UniformMatrix3fv, UniformMatrix3fvARB,
+                         location, 1, if transpose { 1 } else { 0 }, val.as_ptr() as *const f32);
             }))
         },
-        UniformValue::Mat4(val) => {
+        UniformValue::Mat4(val, transpose) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.UniformMatrix4fv(location, 1, 0, val.as_ptr() as *const f32)
-                }
+                uniform!(ctxt, UniformMatrix4fv, UniformMatrix4fvARB,
+                         location, 1, if transpose { 1 } else { 0 }, val.as_ptr() as *const f32);
             }))
         },
         UniformValue::Vec2(val) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.Uniform2fv(location, 1, val.as_ptr() as *const f32)
-                }
+                uniform!(ctxt, Uniform2fv, Uniform2fvARB, location, 1, val.as_ptr() as *const f32);
             }))
         },
         UniformValue::Vec3(val) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.Uniform3fv(location, 1, val.as_ptr() as *const f32)
-                }
+                uniform!(ctxt, Uniform3fv, Uniform3fvARB, location, 1, val.as_ptr() as *const f32);
             }))
         },
         UniformValue::Vec4(val) => {
             Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
-                unsafe {
-                    ctxt.gl.Uniform4fv(location, 1, val.as_ptr() as *const f32)
-                }
+                uniform!(ctxt, Uniform4fv, Uniform4fvARB, location, 1, val.as_ptr() as *const f32);
             }))
         },
         UniformValue::Texture1d(texture, sampler) => {
@@ -441,6 +520,22 @@ fn uniform_to_binder(display: &Display, value: &UniformValue, location: gl::type
         UniformValue::DepthTexture2d(texture, sampler) => {
             let texture = texture.get_id();
             build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D)
+        },
+        UniformValue::Texture2dMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE)
+        },
+        UniformValue::IntegralTexture2dMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE)
+        },
+        UniformValue::UnsignedTexture2dMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE)
+        },
+        UniformValue::DepthTexture2dMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE)
         },
         UniformValue::Texture3d(texture, sampler) => {
             let texture = texture.get_id();
@@ -502,6 +597,22 @@ fn uniform_to_binder(display: &Display, value: &UniformValue, location: gl::type
             let texture = texture.get_id();
             build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_ARRAY)
         },
+        UniformValue::Texture2dArrayMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE_ARRAY)
+        },
+        UniformValue::IntegralTexture2dArrayMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE_ARRAY)
+        },
+        UniformValue::UnsignedTexture2dArrayMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE_ARRAY)
+        },
+        UniformValue::DepthTexture2dArrayMultisample(texture, sampler) => {
+            let texture = texture.get_id();
+            build_texture_binder(display, texture, sampler, location, active_texture, gl::TEXTURE_2D_MULTISAMPLE_ARRAY)
+        },
     }
 }
 
@@ -525,13 +636,29 @@ fn build_texture_binder(display: &Display, texture: gl::types::GLuint,
 
     Ok(Box::new(move |&: ctxt: &mut context::CommandContext| {
         unsafe {
-            ctxt.gl.ActiveTexture(current_texture + gl::TEXTURE0);
+            // TODO: what if it's not supported?
+            let active_tex_enum = current_texture + gl::TEXTURE0;
+            if ctxt.state.active_texture != active_tex_enum {
+                ctxt.gl.ActiveTexture(current_texture + gl::TEXTURE0);
+                ctxt.state.active_texture = active_tex_enum;
+            }
+
             ctxt.gl.BindTexture(bind_point, texture);
-            ctxt.gl.Uniform1i(location, current_texture as gl::types::GLint);
+
+            if ctxt.version >= &context::GlVersion(Api::Gl, 1, 5) {
+                ctxt.gl.Uniform1i(location, current_texture as gl::types::GLint);
+            } else {
+                assert!(ctxt.extensions.gl_arb_shader_objects);
+                ctxt.gl.Uniform1iARB(location, current_texture as gl::types::GLint);
+            }
 
             if let Some(sampler) = sampler {
+                assert!(ctxt.version >= &context::GlVersion(Api::Gl, 3, 3) ||
+                        ctxt.extensions.gl_arb_sampler_objects);
                 ctxt.gl.BindSampler(current_texture, sampler);
-            } else {
+            } else if ctxt.version >= &context::GlVersion(Api::Gl, 3, 3) ||
+                ctxt.extensions.gl_arb_sampler_objects
+            {
                 ctxt.gl.BindSampler(current_texture, 0);
             }
         }

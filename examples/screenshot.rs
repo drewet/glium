@@ -1,9 +1,6 @@
-#![feature(plugin)]
-
-#[plugin]
-extern crate glium_macros;
-
 extern crate glutin;
+
+#[macro_use]
 extern crate glium;
 
 #[cfg(feature = "image")]
@@ -28,12 +25,13 @@ fn main() {
 
     // building the vertex buffer, which contains all the vertices that we will draw
     let vertex_buffer = {
-        #[vertex_format]
         #[derive(Copy)]
         struct Vertex {
             position: [f32; 2],
             color: [f32; 3],
         }
+
+        implement_vertex!(Vertex, position, color);
 
         glium::VertexBuffer::new(&display, 
             vec![
@@ -46,7 +44,7 @@ fn main() {
 
     // building the index buffer
     let index_buffer = glium::IndexBuffer::new(&display,
-        glium::index_buffer::TrianglesList(vec![0u16, 1, 2]));
+        glium::index::TrianglesList(vec![0u16, 1, 2]));
 
     // compiling shaders and linking them together
     let program = glium::Program::from_source(&display,
@@ -81,17 +79,10 @@ fn main() {
         None)
         .unwrap();
 
-    // creating the uniforms structure
-    #[uniforms]
-    #[derive(Copy)]
-    struct Uniforms {
-        matrix: [[f32; 4]; 4],
-    }
-    
     // drawing once
 
     // building the uniforms
-    let uniforms = Uniforms {
+    let uniforms = uniform! {
         matrix: [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
@@ -108,6 +99,6 @@ fn main() {
 
     // reading the front buffer into an image
     let image: image::DynamicImage = display.read_front_buffer();
-    let output = std::io::fs::File::create(&Path::new("glium-example-screenshot.png"));
-    image.save(output, image::ImageFormat::PNG).unwrap().unwrap();
+    let mut output = std::old_io::fs::File::create(&Path::new("glium-example-screenshot.png"));
+    image.save(&mut output, image::ImageFormat::PNG).unwrap().unwrap();
 }

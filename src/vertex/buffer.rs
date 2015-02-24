@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 use buffer::{self, Buffer};
@@ -8,12 +9,21 @@ use Display;
 use GlObject;
 
 use context;
+use version::Api;
 use gl;
 
 /// A list of vertices loaded in the graphics card's memory.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct VertexBuffer<T> {
     buffer: VertexBufferAny,
+    marker: PhantomData<T>,
+}
+
+/// Represents a slice of a `VertexBuffer`.
+pub struct VertexBufferSlice<'b, T: 'b> {
+    buffer: &'b VertexBuffer<T>,
+    offset: usize,
+    length: usize,
 }
 
 impl<T: Vertex + 'static + Send> VertexBuffer<T> {
@@ -22,18 +32,17 @@ impl<T: Vertex + 'static + Send> VertexBuffer<T> {
     /// # Example
     ///
     /// ```no_run
-    /// # #![feature(plugin)]
-    /// # #[plugin]
-    /// # extern crate glium_macros;
+    /// # #[macro_use]
     /// # extern crate glium;
     /// # extern crate glutin;
     /// # fn main() {
-    /// #[vertex_format]
     /// #[derive(Copy)]
     /// struct Vertex {
     ///     position: [f32; 3],
     ///     texcoords: [f32; 2],
     /// }
+    ///
+    /// implement_vertex!(Vertex, position, texcoords);
     ///
     /// # let display: glium::Display = unsafe { ::std::mem::uninitialized() };
     /// let vertex_buffer = glium::VertexBuffer::new(&display, vec![
@@ -54,7 +63,8 @@ impl<T: Vertex + 'static + Send> VertexBuffer<T> {
                 buffer: buffer,
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         }
     }
 
@@ -72,7 +82,8 @@ impl<T: Vertex + 'static + Send> VertexBuffer<T> {
                 buffer: buffer,
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         }
     }
 
@@ -90,7 +101,7 @@ impl<T: Vertex + 'static + Send> VertexBuffer<T> {
     pub fn new_persistent_if_supported(display: &Display, data: Vec<T>)
                                        -> Option<VertexBuffer<T>>
     {
-        if display.context.context.get_version() < &context::GlVersion(4, 4) &&
+        if display.context.context.get_version() < &context::GlVersion(Api::Gl, 4, 4) &&
            !display.context.context.get_extensions().gl_arb_buffer_storage
         {
             return None;
@@ -106,20 +117,18 @@ impl<T: Vertex + 'static + Send> VertexBuffer<T> {
                 buffer: buffer,
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         })
     }
 }
 
-impl<T: Send + Copy> VertexBuffer<T> {
+impl<T: Send + Copy + 'static> VertexBuffer<T> {
     /// Builds a new vertex buffer from an indeterminate data type and bindings.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// # #![feature(plugin)]
-    /// # #[plugin]
-    /// # extern crate glium_macros;
     /// # extern crate glium;
     /// # extern crate glutin;
     /// # fn main() {
@@ -144,7 +153,6 @@ impl<T: Send + Copy> VertexBuffer<T> {
     /// # }
     /// ```
     ///
-    #[experimental]
     pub unsafe fn new_raw(display: &Display, data: Vec<T>,
                           bindings: VertexFormat, elements_size: usize) -> VertexBuffer<T>
     {
@@ -153,8 +161,24 @@ impl<T: Send + Copy> VertexBuffer<T> {
                 buffer: Buffer::new::<buffer::ArrayBuffer, T>(display, data, false),
                 bindings: bindings,
                 elements_size: elements_size,
-            }
+            },
+            marker: PhantomData,
         }
+    }
+
+    /// Accesses a slice of the buffer.
+    ///
+    /// Returns `None` if the slice is out of range.
+    pub fn slice(&self, offset: usize, len: usize) -> Option<VertexBufferSlice<T>> {
+        if offset > self.len() || offset + len > self.len() {
+            return None;
+        }
+
+        Some(VertexBufferSlice {
+            buffer: self,
+            offset: offset,
+            length: len
+        })
     }
 
     /// Maps the buffer to allow write access to it.
@@ -188,45 +212,14 @@ impl<T: Send + Copy> VertexBuffer<T> {
         self.buffer.buffer.read_if_supported::<buffer::ArrayBuffer, T>()
     }
 
-    /// Reads the content of the buffer.
-    ///
-    /// This function is usually better if are just doing one punctual read, while `map`
-    /// is better if you want to have multiple small reads.
-    ///
-    /// The offset and size are expressed in number of elements.
+    /// Replaces the content of the buffer.
     ///
     /// ## Panic
     ///
-    /// Panics if `offset` or `offset + size` are greated than the size of the buffer.
-    ///
-    /// # Features
-    ///
-    /// Only available if the `gl_read_buffer` feature is enabled.
-    #[cfg(feature = "gl_read_buffer")]
-    pub fn read_slice(&self, offset: usize, size: usize) -> Vec<T> {
-        self.buffer.buffer.read_slice::<buffer::ArrayBuffer, T>(offset, size)
-    }
-
-    /// Reads the content of the buffer.
-    ///
-    /// This function is usually better if are just doing one punctual read, while `map`
-    /// is better if you want to have multiple small reads.
-    ///
-    /// The offset and size are expressed in number of elements.
-    ///
-    /// ## Panic
-    ///
-    /// Panics if `offset` or `offset + size` are greated than the size of the buffer.
-    pub fn read_slice_if_supported(&self, offset: usize, size: usize) -> Option<Vec<T>> {
-        self.buffer.buffer.read_slice_if_supported::<buffer::ArrayBuffer, T>(offset, size)
-    }
-
-    /// Writes some vertices to the buffer.
-    ///
-    /// Replaces some vertices in the buffer with others.
-    /// The `offset` represents a number of vertices, not a number of bytes.
-    pub fn write(&mut self, offset: usize, data: Vec<T>) {
-        self.buffer.buffer.upload::<buffer::ArrayBuffer, _>(offset, data)
+    /// Panics if the length of `data` is different from the length of this buffer.
+    pub fn write(&self, data: Vec<T>) {
+        assert!(data.len() == self.len());
+        self.buffer.buffer.upload::<buffer::ArrayBuffer, _>(0, data)
     }
 }
 
@@ -250,9 +243,15 @@ impl<T> VertexBuffer<T> {
     pub fn into_vertex_buffer_any(self) -> VertexBufferAny {
         self.buffer
     }
+
+    /// Returns the number of elements in the buffer.
+    pub fn len(&self) -> usize {
+        self.buffer.len()
+    }
 }
 
 impl<T> GlObject for VertexBuffer<T> {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -264,6 +263,52 @@ impl<'a, T> IntoVerticesSource<'a> for &'a VertexBuffer<T> {
     }
 }
 
+impl<'b, T> VertexBufferSlice<'b, T> where T: Send + Copy + 'static {
+    /// Reads the content of the slice.
+    ///
+    /// This function is usually better if are just doing one punctual read, while `map`
+    /// is better if you want to have multiple small reads.
+    ///
+    /// # Features
+    ///
+    /// Only available if the `gl_read_buffer` feature is enabled.
+    #[cfg(feature = "gl_read_buffer")]
+    pub fn read(&self) -> Vec<T> {
+        self.buffer.buffer.buffer.read_slice::<buffer::ArrayBuffer, T>(self.offset, self.length)
+    }
+
+    /// Reads the content of the buffer.
+    ///
+    /// This function is usually better if are just doing one punctual read, while `map`
+    /// is better if you want to have multiple small reads.
+    pub fn read_if_supported(&self) -> Option<Vec<T>> {
+        self.buffer.buffer.buffer.read_slice_if_supported::<buffer::ArrayBuffer, T>(self.offset,
+                                                                                    self.length)
+    }
+
+    /// Writes some vertices to the buffer.
+    ///
+    /// ## Panic
+    ///
+    /// Panics if the length of `data` is different from the length of this slice.
+    pub fn write(&self, data: Vec<T>) {
+        assert!(data.len() == self.length);
+        self.buffer.buffer.buffer.upload::<buffer::ArrayBuffer, _>(self.offset, data)
+    }
+}
+
+impl<'a, T> IntoVerticesSource<'a> for VertexBufferSlice<'a, T> {
+    fn into_vertices_source(self) -> VerticesSource<'a> {
+        let fence = if self.buffer.buffer.buffer.is_persistent() {
+            Some(self.buffer.buffer.buffer.add_fence())
+        } else {
+            None
+        };
+
+        VerticesSource::VertexBuffer(&self.buffer.buffer, fence, self.offset, self.length)
+    }
+}
+
 /// A list of vertices loaded in the graphics card's memory.
 ///
 /// Contrary to `VertexBuffer`, this struct doesn't know about the type of data
@@ -271,11 +316,18 @@ impl<'a, T> IntoVerticesSource<'a> for &'a VertexBuffer<T> {
 ///
 /// This struct is provided for convenience, so that you can have a `Vec<VertexBufferAny>`,
 /// or return a `VertexBufferAny` instead of a `VertexBuffer<MyPrivateVertexType>`.
-#[derive(Show)]
+#[derive(Debug)]
 pub struct VertexBufferAny {
     buffer: Buffer,
     bindings: VertexFormat,
     elements_size: usize,
+}
+
+/// Represents a slice of a `VertexBufferAny`.
+pub struct VertexBufferAnySlice<'b> {
+    buffer: &'b VertexBufferAny,
+    offset: usize,
+    length: usize,
 }
 
 impl VertexBufferAny {
@@ -298,7 +350,23 @@ impl VertexBufferAny {
     pub unsafe fn into_vertex_buffer<T>(self) -> VertexBuffer<T> {
         VertexBuffer {
             buffer: self,
+            marker: PhantomData,
         }
+    }
+
+    /// Accesses a slice of the buffer.
+    ///
+    /// Returns `None` if the slice is out of range.
+    pub fn slice(&self, offset: usize, len: usize) -> Option<VertexBufferAnySlice> {
+        if offset >= self.len() || offset + len >= self.len() {
+            return None;
+        }
+
+        Some(VertexBufferAnySlice {
+            buffer: self,
+            offset: offset,
+            length: len
+        })
     }
 }
 
@@ -318,6 +386,7 @@ impl Drop for VertexBufferAny {
 }
 
 impl GlObject for VertexBufferAny {
+    type Id = gl::types::GLuint;
     fn get_id(&self) -> gl::types::GLuint {
         self.buffer.get_id()
     }
@@ -331,7 +400,19 @@ impl<'a> IntoVerticesSource<'a> for &'a VertexBufferAny {
             None
         };
 
-        VerticesSource::VertexBuffer(self, fence)
+        VerticesSource::VertexBuffer(self, fence, 0, self.len())
+    }
+}
+
+impl<'a> IntoVerticesSource<'a> for VertexBufferAnySlice<'a> {
+    fn into_vertices_source(self) -> VerticesSource<'a> {
+        let fence = if self.buffer.buffer.is_persistent() {
+            Some(self.buffer.buffer.add_fence())
+        } else {
+            None
+        };
+
+        VerticesSource::VertexBuffer(self.buffer, fence, self.offset, self.length)
     }
 }
 
